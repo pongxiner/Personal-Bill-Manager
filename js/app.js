@@ -318,53 +318,16 @@ const App = (() => {
       });
     });
 
-    // 发送验证码
-    let sendCodeTimer = 0;
-    const sendBtn = document.getElementById('btn-send-code');
-    sendBtn.addEventListener('click', async () => {
-      const phone = document.getElementById('reg-phone').value.trim();
-      if (!/^1[3-9]\d{9}$/.test(phone)) {
-        toast('请输入正确的手机号');
-        return;
-      }
-      if (sendCodeTimer > 0) return;
-
-      try {
-        sendBtn.disabled = true;
-        await Auth.sendCode(phone);
-        toast('验证码已发送（开发模式：888888）');
-
-        // 60秒倒计时
-        sendCodeTimer = 60;
-        const updateTimer = () => {
-          if (sendCodeTimer <= 0) {
-            sendBtn.textContent = '获取验证码';
-            sendBtn.disabled = false;
-            return;
-          }
-          sendBtn.textContent = sendCodeTimer + 's 后重发';
-          sendCodeTimer--;
-          setTimeout(updateTimer, 1000);
-        };
-        updateTimer();
-      } catch (e) {
-        toast(e.message);
-        sendBtn.disabled = false;
-      }
-    });
-
-    // 注册
+    // 注册（仅手机号+密码）
     document.getElementById('btn-register').addEventListener('click', async () => {
       const phone = document.getElementById('reg-phone').value.trim();
       const password = document.getElementById('reg-password').value.trim();
-      const code = document.getElementById('reg-code').value.trim();
 
-      if (!phone || !password || !code) { toast('请填写完整信息'); return; }
+      if (!phone || !password) { toast('请填写完整信息'); return; }
       if (password.length < 6) { toast('密码至少6位'); return; }
 
       try {
-        await Auth.register(phone, password, code);
-        toast('注册成功！已开启 30 天免费试用');
+        await Auth.register(phone, password);
         await startApp();
       } catch (e) {
         toast(e.message);

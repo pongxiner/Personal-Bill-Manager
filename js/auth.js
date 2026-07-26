@@ -95,24 +95,12 @@ const Auth = (() => {
     document.getElementById('bottom-nav').style.display = '';
   }
 
-  // ============ 发送验证码 ============
-  async function sendCode(phone) {
-    const res = await fetch('/api/auth/send-code', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    return data;
-  }
-
-  // ============ 注册 ============
-  async function register(phone, password, code, nickname) {
+  // ============ 注册（仅手机号+密码） ============
+  async function register(phone, password, nickname) {
     const res = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, password, code, nickname })
+      body: JSON.stringify({ phone, password, nickname })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
@@ -168,7 +156,7 @@ const Auth = (() => {
     isLoggedIn, isTrialExpired, getTrialRemainingDays,
     refreshUserInfo, logout, onUnauthorized,
     showLoginPage, hideLoginPage,
-    sendCode, register, login,
+    register, login,
     initAuth
   };
 })();

@@ -30,28 +30,16 @@ router.post('/send-code', (req, res) => {
   res.json({ success: true, message: '验证码已发送' });
 });
 
-// ============ 用户注册 ============
+// ============ 用户注册（手机号+密码，无需验证码） ============
 router.post('/register', (req, res) => {
-  const { phone, password, code, nickname } = req.body;
+  const { phone, password, nickname } = req.body;
 
-  if (!phone || !password || !code) {
-    return res.status(400).json({ error: '请填写完整信息' });
+  if (!phone || !password) {
+    return res.status(400).json({ error: '请填写手机号和密码' });
   }
   if (password.length < 6) {
     return res.status(400).json({ error: '密码至少6位' });
   }
-
-  // 验证验证码
-  const record = db.prepare(
-    'SELECT * FROM verify_codes WHERE phone = ? AND code = ? AND used = 0 AND expires_at > ? ORDER BY id DESC LIMIT 1'
-  ).get(phone, code, new Date().toISOString());
-
-  if (!record) {
-    return res.status(400).json({ error: '验证码错误或已过期' });
-  }
-
-  // 标记验证码已使用
-  db.prepare('UPDATE verify_codes SET used = 1 WHERE id = ?').run(record.id);
 
   // 检查手机号是否已注册
   const existing = db.prepare('SELECT id FROM users WHERE phone = ?').get(phone);

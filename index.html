@@ -48,37 +48,8 @@
         <label>密码</label>
         <input type="password" id="reg-password" placeholder="设置密码（至少6位）" maxlength="20">
       </div>
-      <div class="input-group">
-        <label>验证码</label>
-        <div class="verify-row">
-          <input type="text" id="reg-code" placeholder="输入验证码" maxlength="6">
-          <button class="verify-btn" id="btn-send-code">获取验证码</button>
-        </div>
-      </div>
       <button class="auth-btn" id="btn-register">注册</button>
     </div>
-  </div>
-</div>
-
-<!-- ==================== PIN 密码锁 ==================== -->
-<div id="pin-gate" class="pin-gate">
-  <div class="pin-card">
-    <div class="pin-lock-icon">🔐</div>
-    <h2 id="pin-title">设置访问密码</h2>
-    <p id="pin-subtitle" class="pin-subtitle">设置 6 位数字密码保护你的财务数据</p>
-    <div class="pin-dots" id="pin-dots">
-      <span class="pin-dot"></span><span class="pin-dot"></span>
-      <span class="pin-dot"></span><span class="pin-dot"></span>
-      <span class="pin-dot"></span><span class="pin-dot"></span>
-    </div>
-    <p id="pin-error" class="pin-error"></p>
-    <div class="pin-numpad">
-      <div class="pin-row"><button class="pin-key" data-key="1">1</button><button class="pin-key" data-key="2">2</button><button class="pin-key" data-key="3">3</button></div>
-      <div class="pin-row"><button class="pin-key" data-key="4">4</button><button class="pin-key" data-key="5">5</button><button class="pin-key" data-key="6">6</button></div>
-      <div class="pin-row"><button class="pin-key" data-key="7">7</button><button class="pin-key" data-key="8">8</button><button class="pin-key" data-key="9">9</button></div>
-      <div class="pin-row"><button class="pin-key pin-key-empty"></button><button class="pin-key" data-key="0">0</button><button class="pin-key pin-key-del">⌫</button></div>
-    </div>
-    <button id="pin-reset" class="pin-reset-btn">忘记密码？重置所有数据</button>
   </div>
 </div>
 
@@ -778,7 +749,6 @@
   </div>
 </div>
 
-<script src="js/pin-gate.js?v=15"></script>
 <script src="js/auth.js?v=15"></script>
 <script src="js/api.js?v=15"></script>
 <script src="js/categories.js?v=15"></script>
