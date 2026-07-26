@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>财务工作台</title>
+  <link rel="stylesheet" href="css/style.css?v=15">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<!-- ==================== 登录/注册页面 ==================== -->
+<div id="page-auth" class="auth-page" style="display:none">
+  <div class="auth-card">
+    <div class="auth-logo">💰</div>
+    <h1 class="auth-title">财务工作台</h1>
+    <p class="auth-subtitle">个人财务管理，轻松掌握每一笔</p>
+
+    <!-- 模式切换 -->
+    <div class="auth-tabs">
+      <span class="auth-tab active" data-mode="login" id="tab-login">登录</span>
+      <span class="auth-tab" data-mode="register" id="tab-register">注册</span>
+    </div>
+
+    <!-- 登录表单 -->
+    <div id="form-login" class="auth-form">
+      <div class="input-group">
+        <label>手机号</label>
+        <input type="tel" id="login-phone" placeholder="请输入手机号" maxlength="11">
+      </div>
+      <div class="input-group">
+        <label>密码</label>
+        <input type="password" id="login-password" placeholder="请输入密码" maxlength="20">
+      </div>
+      <button class="auth-btn" id="btn-login">登录</button>
+    </div>
+
+    <!-- 注册表单 -->
+    <div id="form-register" class="auth-form" style="display:none">
+      <div class="input-group">
+        <label>手机号</label>
+        <input type="tel" id="reg-phone" placeholder="请输入手机号" maxlength="11">
+      </div>
+      <div class="input-group">
+        <label>密码</label>
+        <input type="password" id="reg-password" placeholder="设置密码（至少6位）" maxlength="20">
+      </div>
+      <div class="input-group">
+        <label>验证码</label>
+        <div class="verify-row">
+          <input type="text" id="reg-code" placeholder="输入验证码" maxlength="6">
+          <button class="verify-btn" id="btn-send-code">获取验证码</button>
+        </div>
+      </div>
+      <button class="auth-btn" id="btn-register">注册</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== PIN 密码锁 ==================== -->
+<div id="pin-gate" class="pin-gate">
+  <div class="pin-card">
+    <div class="pin-lock-icon">🔐</div>
+    <h2 id="pin-title">设置访问密码</h2>
+    <p id="pin-subtitle" class="pin-subtitle">设置 6 位数字密码保护你的财务数据</p>
+    <div class="pin-dots" id="pin-dots">
+      <span class="pin-dot"></span><span class="pin-dot"></span>
+      <span class="pin-dot"></span><span class="pin-dot"></span>
+      <span class="pin-dot"></span><span class="pin-dot"></span>
+    </div>
+    <p id="pin-error" class="pin-error"></p>
+    <div class="pin-numpad">
+      <div class="pin-row"><button class="pin-key" data-key="1">1</button><button class="pin-key" data-key="2">2</button><button class="pin-key" data-key="3">3</button></div>
+      <div class="pin-row"><button class="pin-key" data-key="4">4</button><button class="pin-key" data-key="5">5</button><button class="pin-key" data-key="6">6</button></div>
+      <div class="pin-row"><button class="pin-key" data-key="7">7</button><button class="pin-key" data-key="8">8</button><button class="pin-key" data-key="9">9</button></div>
+      <div class="pin-row"><button class="pin-key pin-key-empty"></button><button class="pin-key" data-key="0">0</button><button class="pin-key pin-key-del">⌫</button></div>
+    </div>
+    <button id="pin-reset" class="pin-reset-btn">忘记密码？重置所有数据</button>
+  </div>
+</div>
+
+<div id="app">
+
+  <!-- ==================== 首页 ==================== -->
+  <section id="page-home" class="page active">
+    <header class="page-header">
+      <div class="header-left">
+        <span class="month-label" id="home-month-label"></span>
+      </div>
+      <div class="header-right">
+        <button class="icon-btn" id="home-prev-month">‹</button>
+        <button class="icon-btn" id="home-next-month">›</button>
+        <button class="icon-btn header-import-btn" id="header-import-btn" style="display:none" title="导入账单">
+          <span class="import-btn-icon">📥</span>
+          <span class="import-btn-badge" id="import-btn-badge"></span>
+        </button>
+      </div>
+    </header>
+    <div class="page-content">
+      <!-- 概览卡片 -->
+      <div class="summary-card">
+        <div class="summary-row">
+          <div class="summary-item">
+            <span class="summary-label">本月收入</span>
+            <span class="summary-value income" id="home-income">¥0.00</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">本月支出</span>
+            <span class="summary-value expense" id="home-expense">¥0.00</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">本月结余</span>
+            <span class="summary-value" id="home-balance">¥0.00</span>
+          </div>
+        </div>
+        <div class="savings-rate-bar">
+          <div class="savings-rate-label">
+            <span>储蓄率</span>
+            <span id="home-savings-rate">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="home-savings-bar" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 近7天趋势 -->
+      <div class="card">
+        <div class="card-title">近7天支出趋势</div>
+        <div class="chart-container">
+          <canvas id="home-trend-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- 每日理财小贴士 -->
+      <div class="card daily-tip-card" id="daily-tip-card">
+        <div class="tip-header">
+          <span class="tip-badge">💡 今日理财知识</span>
+        </div>
+        <p class="tip-content" id="daily-tip-content"></p>
+        <div class="tip-footer">
+          <button class="link-btn" id="daily-tip-refresh">换一条 ›</button>
+        </div>
+      </div>
+
+      <!-- 快捷入口 -->
+      <div class="quick-actions">
+        <button class="quick-btn" id="quick-import">
+          <span class="quick-icon">📥</span>
+          <span>导入账单</span>
+        </button>
+        <button class="quick-btn" id="quick-advice">
+          <span class="quick-icon">💡</span>
+          <span>理财建议</span>
+        </button>
+        <button class="quick-btn" id="quick-accounts">
+          <span class="quick-icon">💳</span>
+          <span>账户管理</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 账单页 ==================== -->
+  <section id="page-records" class="page">
+    <header class="page-header">
+      <div class="header-left">
+        <button class="month-picker-trigger" id="records-month-label">
+          <span id="records-month-text"></span>
+          <span class="picker-chevron">▾</span>
+        </button>
+      </div>
+      <div class="header-right">
+        <button class="icon-btn" id="records-prev-month">‹</button>
+        <button class="icon-btn" id="records-next-month">›</button>
+        <button class="icon-btn" id="records-filter">⌕</button>
+      </div>
+    </header>
+
+    <!-- 筛选面板 -->
+    <div id="filter-panel" class="filter-panel">
+      <div class="filter-row">
+        <label>类型</label>
+        <div class="filter-chips" id="filter-type">
+          <button class="chip active" data-val="all">全部</button>
+          <button class="chip" data-val="expense">支出</button>
+          <button class="chip" data-val="income">收入</button>
+        </div>
+      </div>
+      <div class="filter-row">
+        <label>分类</label>
+        <div class="filter-chips" id="filter-category"></div>
+      </div>
+      <div class="filter-row">
+        <label>搜索</label>
+        <input type="text" id="filter-search" placeholder="搜索备注、交易对方" class="filter-input">
+      </div>
+    </div>
+
+    <div class="page-content">
+      <!-- 搜索栏 -->
+      <div class="records-search-bar">
+        <span class="search-icon">⌕</span>
+        <input type="text" id="records-search" placeholder="搜索备注、金额、分类" autocomplete="off">
+        <button class="search-clear" id="records-search-clear" style="display:none">✕</button>
+      </div>
+
+      <!-- 月度概览 -->
+      <div class="month-overview" id="records-overview">
+        <div class="mo-item">
+          <span class="mo-label">收入</span>
+          <span class="mo-value income" id="records-income">¥0.00</span>
+        </div>
+        <div class="mo-divider"></div>
+        <div class="mo-item">
+          <span class="mo-label">支出</span>
+          <span class="mo-value expense" id="records-expense">¥0.00</span>
+        </div>
+        <div class="mo-divider"></div>
+        <div class="mo-item">
+          <span class="mo-label">结余</span>
+          <span class="mo-value" id="records-balance">¥0.00</span>
+        </div>
+      </div>
+
+      <!-- 交易列表 -->
+      <div id="records-list" class="transaction-list grouped"></div>
+      <div id="records-empty" class="empty-state" style="display:none">
+        <span class="empty-icon">📝</span>
+        <p>本月暂无记录</p>
+        <button class="btn-primary" onclick="App.openAddModal()">记一笔</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 统计页 ==================== -->
+  <section id="page-stats" class="page">
+    <header class="page-header stats-header">
+      <div class="stats-type-toggle" id="stats-type-toggle">
+        <button class="stats-type-btn active" data-type="expense">支出</button>
+        <button class="stats-type-btn" data-type="income">收入</button>
+      </div>
+    </header>
+    <div class="page-content">
+      <!-- 周/月/年 tabs -->
+      <div class="period-tabs" id="period-tabs">
+        <button class="period-tab" data-period="week">周</button>
+        <button class="period-tab active" data-period="month">月</button>
+        <button class="period-tab" data-period="year">年</button>
+      </div>
+
+      <!-- 周期滑动选择条 -->
+      <div class="period-strip-wrap">
+        <button class="icon-btn period-nav" id="period-prev">‹</button>
+        <div class="period-strip" id="period-strip"></div>
+        <button class="icon-btn period-nav" id="period-next">›</button>
+      </div>
+
+      <!-- 总额和平均值 -->
+      <div class="period-summary" id="period-summary">
+        <div class="period-total" id="stats-period-total">总支出：0</div>
+        <div class="period-avg" id="stats-period-avg">平均值：0</div>
+      </div>
+
+      <!-- 趋势图 -->
+      <div class="card">
+        <div class="chart-container tall">
+          <canvas id="stats-line-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- 排行榜 -->
+      <div class="card">
+        <div class="card-title" id="stats-rank-title">支出排行榜</div>
+        <div id="stats-category-ranking" class="ranking-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 分类详情页 ==================== -->
+  <section id="page-cat-detail" class="page">
+    <header class="cat-detail-header">
+      <button class="cat-detail-back" id="cat-detail-back">←</button>
+      <span class="cat-detail-cat-icon" id="cd-cat-icon">💰</span>
+      <span class="cat-detail-cat-name" id="cd-cat-name">分类详情</span>
+    </header>
+    <div class="page-content">
+      <div class="cat-detail-sort">
+        <button class="sort-btn active" data-sort="amount" id="cd-sort-amount">按金额</button>
+        <button class="sort-btn" data-sort="time" id="cd-sort-time">按时间</button>
+      </div>
+      <div class="cat-detail-summary" id="cd-summary">
+        <div class="cds-item"><div class="cds-val" id="cd-total">¥0</div><div class="cds-label">合计</div></div>
+        <div class="cds-item"><div class="cds-val" id="cd-count">0</div><div class="cds-label">笔数</div></div>
+        <div class="cds-item"><div class="cds-val" id="cd-avg">¥0</div><div class="cds-label">笔均</div></div>
+      </div>
+      <div class="cat-detail-chart-box">
+        <div class="chart-container">
+          <canvas id="cd-chart"></canvas>
+        </div>
+      </div>
+      <div class="cat-detail-list" id="cd-list"></div>
+    </div>
+  </section>
+
+  <!-- ==================== 我的页 ==================== -->
+  <section id="page-profile" class="page">
+    <header class="page-header">
+      <div class="header-left"><span>我的</span></div>
+    </header>
+    <div class="page-content">
+      <!-- 总资产 -->
+      <div class="assets-card">
+        <div class="assets-label">总资产</div>
+        <div class="assets-value" id="profile-total-assets">¥0.00</div>
+        <div class="assets-detail">
+          <div><span>负债</span><span id="profile-debt">¥0.00</span></div>
+          <div><span>净资产</span><span id="profile-net-assets">¥0.00</span></div>
+        </div>
+      </div>
+
+      <!-- 功能入口 -->
+      <div class="menu-list">
+        <div class="menu-section-label">
+          <span id="profile-import-status">账单导入：本月尚未导入</span>
+        </div>
+        <button class="menu-item" id="menu-accounts">
+          <span class="menu-icon">💳</span>
+          <span class="menu-text">我的账户</span>
+          <span class="menu-arrow">›</span>
+        </button>
+        <button class="menu-item" id="menu-advice">
+          <span class="menu-icon">💡</span>
+          <span class="menu-text">理财建议</span>
+          <span class="menu-arrow">›</span>
+        </button>
+        <button class="menu-item" id="menu-import">
+          <span class="menu-icon">📥</span>
+          <span class="menu-text">导入账单</span>
+          <span class="menu-arrow">›</span>
+        </button>
+        <button class="menu-item" id="menu-restore">
+          <span class="menu-icon">🔄</span>
+          <span class="menu-text">还原备份</span>
+          <span class="menu-arrow">›</span>
+        </button>
+        <div class="menu-item toggle-item" id="menu-monthly-reminder">
+          <span class="toggle-label"><span class="toggle-icon">⏰</span>每月导入提醒</span>
+          <span class="toggle-switch" id="toggle-monthly-reminder"></span>
+        </div>
+        <div class="menu-hint" id="reminder-hint">开启后，每月1号在记账提醒你导入账单</div>
+        <button class="menu-item" id="menu-budget">
+          <span class="menu-icon">🎯</span>
+          <span class="menu-text">预算设置</span>
+          <span class="menu-arrow">›</span>
+        </button>
+        <button class="menu-item" id="menu-categories">
+          <span class="menu-icon">🏷️</span>
+          <span class="menu-text">分类管理</span>
+          <span class="menu-arrow">›</span>
+        </button>
+        <button class="menu-item" id="menu-export">
+          <span class="menu-icon">📤</span>
+          <span class="menu-text">导出数据</span>
+          <span class="menu-arrow">›</span>
+        </button>
+        <button class="menu-item danger" id="menu-clear">
+          <span class="menu-icon">🗑️</span>
+          <span class="menu-text">清空数据</span>
+          <span class="menu-arrow">›</span>
+        </button>
+        <button class="menu-item" id="menu-logout">
+          <span class="menu-icon">🚪</span>
+          <span class="menu-text">退出登录</span>
+          <span class="menu-arrow">›</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 底部导航 ==================== -->
+  <nav id="bottom-nav">
+    <button class="nav-btn active" data-page="home">
+      <span class="nav-icon">🏠</span><span class="nav-label">首页</span>
+    </button>
+    <button class="nav-btn" data-page="records">
+      <span class="nav-icon">📋</span><span class="nav-label">账单</span>
+    </button>
+    <button class="nav-fab" id="fab-add">
+      <span>＋</span>
+    </button>
+    <button class="nav-btn" data-page="stats">
+      <span class="nav-icon">📊</span><span class="nav-label">统计</span>
+    </button>
+    <button class="nav-btn" data-page="profile">
+      <span class="nav-icon">👤</span><span class="nav-label">我的</span>
+    </button>
+  </nav>
+</div>
+
+<!-- ==================== 记一笔弹窗 ==================== -->
+<div id="modal-add" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <button class="modal-close" id="add-close">✕</button>
+      <span class="modal-title" id="modal-title-text">记一笔</span>
+    </div>
+    <div class="modal-body">
+      <!-- 类型切换 -->
+      <div class="type-tabs" id="add-type-tabs">
+        <button class="type-tab active" data-type="expense">支出</button>
+        <button class="type-tab" data-type="income">收入</button>
+        <button class="type-tab" data-type="transfer">转账</button>
+      </div>
+
+      <!-- 语音输入区域 -->
+      <div id="voice-section" class="voice-section">
+        <button id="voice-btn" class="voice-btn" title="语音记账">
+          <span class="voice-icon">🎤</span>
+          <span class="voice-label">语音记账</span>
+        </button>
+        <div id="voice-status" class="voice-status">
+          <span id="voice-status-text" class="voice-hint">试试说：午餐花了35块钱</span>
+          <div id="voice-wave" class="voice-wave">
+            <span class="wave-bar"></span><span class="wave-bar"></span>
+            <span class="wave-bar"></span><span class="wave-bar"></span>
+            <span class="wave-bar"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 快捷模板 -->
+      <div id="templates-section" class="templates-section">
+        <div class="section-label">快捷模板</div>
+        <div id="templates-list" class="templates-list"></div>
+      </div>
+
+      <!-- 金额显示（点击弹出数字键盘） -->
+      <div class="amount-display" id="add-amount-display">
+        <span class="currency">¥</span>
+        <span class="amount-text" id="add-amount-text">0</span>
+        <span class="amount-edit-hint">点击输入</span>
+      </div>
+
+      <!-- 转账特殊 -->
+      <div id="transfer-fields" style="display:none">
+        <div class="form-row">
+          <label>转出账户</label>
+          <select id="transfer-from"></select>
+        </div>
+        <div class="form-row">
+          <label>转入账户</label>
+          <select id="transfer-to"></select>
+        </div>
+      </div>
+
+      <!-- 分类选择 -->
+      <div class="form-row" id="category-section">
+        <label>选择分类</label>
+        <select id="add-category-select" class="category-select">
+          <option value="">请选择分类</option>
+        </select>
+      </div>
+
+      <!-- 账户选择 -->
+      <div class="form-row" id="account-section">
+        <label>账户</label>
+        <select id="add-account"></select>
+      </div>
+
+      <!-- 日期 -->
+      <div class="form-row">
+        <label>日期</label>
+        <input type="date" id="add-date">
+      </div>
+
+      <!-- 备注 -->
+      <div class="form-row">
+        <label>备注</label>
+        <input type="text" id="add-note" placeholder="选填">
+      </div>
+
+      <button class="btn-primary btn-block" id="add-save">保存</button>
+      <button class="btn-danger-outline btn-block" id="add-delete" style="display:none;margin-top:8px">删除此记录</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 金额输入弹窗 ==================== -->
+<div id="modal-amount" class="modal-overlay amount-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <button class="modal-close" id="amount-close">✕</button>
+      <span class="modal-title">输入金额</span>
+      <button class="modal-confirm" id="amount-confirm">确定</button>
+    </div>
+    <div class="modal-body">
+      <div class="amount-display-lg" id="amount-modal-display">
+        <span class="currency">¥</span>
+        <span class="amount-text" id="amount-modal-text">0</span>
+      </div>
+      <div id="amount-numpad" class="numpad show">
+        <div class="numpad-row">
+          <button class="numpad-key" data-key="1">1</button>
+          <button class="numpad-key" data-key="2">2</button>
+          <button class="numpad-key" data-key="3">3</button>
+        </div>
+        <div class="numpad-row">
+          <button class="numpad-key" data-key="4">4</button>
+          <button class="numpad-key" data-key="5">5</button>
+          <button class="numpad-key" data-key="6">6</button>
+        </div>
+        <div class="numpad-row">
+          <button class="numpad-key" data-key="7">7</button>
+          <button class="numpad-key" data-key="8">8</button>
+          <button class="numpad-key" data-key="9">9</button>
+        </div>
+        <div class="numpad-row">
+          <button class="numpad-key numpad-dot" data-key=".">.</button>
+          <button class="numpad-key" data-key="0">0</button>
+          <button class="numpad-key numpad-del" data-key="del">⌫</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 导入弹窗 ==================== -->
+<div id="modal-import" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <button class="modal-close" id="import-close">✕</button>
+      <span class="modal-title">导入账单</span>
+    </div>
+    <div class="modal-body">
+      <div class="import-platform-tabs">
+        <button class="platform-tab active" data-platform="wechat">微信账单</button>
+        <button class="platform-tab" data-platform="alipay">支付宝账单</button>
+      </div>
+
+      <div class="import-guide" id="import-guide-wechat">
+        <p><b>微信导出步骤：</b></p>
+        <p>我 → 服务 → 钱包 → 账单 → 右上角 ··· → 常见问题 → 下载账单 → 选择"用于个人对账"</p>
+        <p>收到邮件后下载账单文件（CSV 或 Excel），在此上传</p>
+      </div>
+      <div class="import-guide" id="import-guide-alipay" style="display:none">
+        <p><b>支付宝导出步骤：</b></p>
+        <p>我的 → 账单 → 右上角 ··· → 开具交易流水证明 → 选择"用于个人对账"</p>
+        <p>收到邮件后下载账单文件（CSV 或 Excel），在此上传</p>
+      </div>
+
+      <div class="file-upload-area" id="import-dropzone">
+        <span class="upload-icon">📄</span>
+        <p class="dropzone-label">点击选择文件或拖拽到此</p>
+        <p class="upload-hint">支持 .csv / .xlsx / .xls 格式</p>
+        <input type="file" id="import-file-input" accept=".csv,.xlsx,.xls">
+      </div>
+
+      <div id="import-preview" style="display:none">
+        <div class="import-summary" id="import-summary"></div>
+        <div class="import-preview-list" id="import-preview-list"></div>
+        <button class="btn-primary btn-block" id="import-confirm">确认导入</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 账户管理弹窗 ==================== -->
+<div id="modal-account" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <button class="modal-close" id="account-close">✕</button>
+      <span class="modal-title">账户管理</span>
+    </div>
+    <div class="modal-body">
+      <div id="account-list-manage" class="account-manage-list"></div>
+
+      <div class="section-label" style="margin-top:16px">添加账户</div>
+      <div class="form-row">
+        <label>名称</label>
+        <input type="text" id="new-account-name" placeholder="如：招商银行卡">
+      </div>
+      <div class="form-row">
+        <label>类型</label>
+        <select id="new-account-type">
+          <option value="cash">现金</option>
+          <option value="bank">银行卡</option>
+          <option value="wechat">微信零钱</option>
+          <option value="alipay">支付宝</option>
+          <option value="credit">信用卡</option>
+          <option value="other">其他</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>期初余额</label>
+        <input type="number" id="new-account-balance" placeholder="0.00" step="0.01">
+      </div>
+      <button class="btn-primary btn-block" id="account-add">添加账户</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 理财建议弹窗 ==================== -->
+<div id="modal-advice" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <button class="modal-close" id="advice-close">✕</button>
+      <span class="modal-title">理财建议</span>
+    </div>
+    <div class="modal-body">
+      <div id="advice-content"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 分类管理弹窗 ==================== -->
+<div id="modal-categories" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <button class="modal-close" id="cat-close">✕</button>
+      <span class="modal-title">分类管理</span>
+    </div>
+    <div class="modal-body">
+      <div class="cat-mgmt-tabs">
+        <button class="cat-mgmt-tab active" data-type="expense">支出分类</button>
+        <button class="cat-mgmt-tab" data-type="income">收入分类</button>
+      </div>
+      <button class="cat-restore-btn" id="cat-restore-defaults">↺ 恢复预设分类</button>
+      <div id="cat-mgmt-list" class="cat-mgmt-list"></div>
+      <div class="cat-mgmt-add-new">
+        <div class="cat-icon-preview" id="cat-icon-preview">❓</div>
+        <input type="text" id="new-cat-name" class="cat-name-input" placeholder="输入分类名称" maxlength="10">
+        <div class="preset-icon-grid" id="preset-icon-grid"></div>
+        <button class="btn-primary" id="cat-add-btn" style="width:100%;padding:12px;font-size:15px;border-radius:10px">确认添加</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 备份还原弹窗 ==================== -->
+<div id="modal-restore" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <button class="modal-close" id="restore-close">✕</button>
+      <span class="modal-title">还原备份</span>
+    </div>
+    <div class="modal-body">
+      <div class="import-guide">
+        <p>将之前导出的 JSON 备份文件导入，还原所有数据。</p>
+        <p style="color:var(--expense);font-weight:500;margin-top:8px">⚠ 导入将覆盖当前所有数据，建议先导出当前数据。</p>
+      </div>
+      <div class="file-upload-area" id="restore-dropzone">
+        <span class="upload-icon">📁</span>
+        <p>点击选择备份文件</p>
+        <p class="upload-hint">.json 格式</p>
+        <input type="file" id="restore-file-input" accept=".json">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 交易明细弹窗 ==================== -->
+<div id="modal-detail" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <button class="modal-close" id="detail-close">✕</button>
+      <span class="modal-title" id="detail-title">交易明细</span>
+    </div>
+    <div class="modal-body">
+      <div class="detail-summary" id="detail-summary"></div>
+      <div id="detail-list" class="transaction-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 预算设置弹窗 ==================== -->
+<div id="modal-budget" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <button class="modal-close" id="budget-close">✕</button>
+      <span class="modal-title">预算设置</span>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label class="budget-total-label">月度总预算</label>
+        <input type="number" id="budget-total" placeholder="0" step="100">
+      </div>
+      <div id="budget-category-list"></div>
+      <button class="btn-primary btn-block" id="budget-save">保存预算</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 年月选择器 ==================== -->
+<div id="modal-month-picker" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-header">
+      <button class="modal-close" id="month-picker-close">✕</button>
+      <span class="modal-title">选择年月</span>
+    </div>
+    <div class="modal-body">
+      <div class="month-picker-toolbar">
+        <button class="year-nav" id="picker-prev-year">‹</button>
+        <div class="picker-current-year" id="picker-year-display">2026</div>
+        <button class="year-nav" id="picker-next-year">›</button>
+        <button class="btn-text-current" id="picker-go-current">本月</button>
+      </div>
+      <div class="month-grid" id="month-grid">
+        <div class="month-cell" data-m="0">1月</div>
+        <div class="month-cell" data-m="1">2月</div>
+        <div class="month-cell" data-m="2">3月</div>
+        <div class="month-cell" data-m="3">4月</div>
+        <div class="month-cell" data-m="4">5月</div>
+        <div class="month-cell" data-m="5">6月</div>
+        <div class="month-cell" data-m="6">7月</div>
+        <div class="month-cell" data-m="7">8月</div>
+        <div class="month-cell" data-m="8">9月</div>
+        <div class="month-cell" data-m="9">10月</div>
+        <div class="month-cell" data-m="10">11月</div>
+        <div class="month-cell" data-m="11">12月</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Toast ==================== -->
+<div id="toast" class="toast"></div>
+
+<!-- ==================== 确认弹窗 ==================== -->
+<div id="modal-confirm" class="modal-overlay confirm-overlay">
+  <div class="confirm-dialog">
+    <div class="confirm-title" id="confirm-title">确认</div>
+    <div class="confirm-message" id="confirm-message"></div>
+    <div class="confirm-actions">
+      <button class="confirm-btn" id="confirm-cancel">取消</button>
+      <button class="confirm-btn primary" id="confirm-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 输入弹窗 ==================== -->
+<div id="modal-prompt" class="modal-overlay confirm-overlay">
+  <div class="confirm-dialog">
+    <div class="confirm-title" id="prompt-title">输入</div>
+    <input type="text" id="prompt-input" class="prompt-input" maxlength="20">
+    <div class="confirm-actions">
+      <button class="confirm-btn" id="prompt-cancel">取消</button>
+      <button class="confirm-btn primary" id="prompt-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 付费弹窗 ==================== -->
+<div id="modal-payment" class="modal-overlay">
+  <div class="payment-dialog">
+    <div class="payment-icon">⏰</div>
+    <h3 class="payment-title">试用期已结束</h3>
+    <p class="payment-desc">您的 <strong>30 天免费试用</strong> 已到期，请付费后继续使用。</p>
+    <div class="payment-qr">
+      <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%23f5f5f5'/%3E%3Ctext x='100' y='100' text-anchor='middle' dy='.35em' font-size='14' fill='%23999' font-family='sans-serif'%3E收款码占位%3C/text%3E%3C/svg%3E" alt="收款码" width="200" height="200">
+    </div>
+    <p class="payment-hint">请扫描上方收款码完成支付<br>支付后联系客服开通权限</p>
+    <div class="payment-amount">¥ 19.9 / 永久</div>
+    <button class="auth-btn" id="btn-payment-close">我知道了</button>
+  </div>
+</div>
+
+<script src="js/pin-gate.js?v=15"></script>
+<script src="js/auth.js?v=15"></script>
+<script src="js/api.js?v=15"></script>
+<script src="js/categories.js?v=15"></script>
+<script src="js/templates.js?v=15"></script>
+<script src="js/voice.js?v=15"></script>
+<script src="js/csv-import.js?v=15"></script>
+<script src="js/charts.js?v=15"></script>
+<script src="js/advisor.js?v=15"></script>
+<script src="js/app.js?v=15"></script>
+</body>
+</html>
