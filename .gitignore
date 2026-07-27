@@ -5,6 +5,5 @@ Thumbs.db
 *.log
 
 # 根目录临时文件（含敏感信息，勿提交）
-/package.json
 /package-lock.json
 /index-test.html

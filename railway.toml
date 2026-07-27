@@ -1,9 +1,9 @@
 [build]
 builder = "nixpacks"
-configPath = "server/package.json"
+buildCommand = "npm run install-server"
 
 [deploy]
-startCommand = "cd server && npm start"
+startCommand = "node server/index.js"
 
 [service]
 name = "personal-Bill-Manager"

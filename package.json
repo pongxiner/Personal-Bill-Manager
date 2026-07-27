@@ -1,0 +1,12 @@
+{
+  "name": "finance-workbench",
+  "version": "1.0.0",
+  "description": "个人财务管理工作台",
+  "scripts": {
+    "start": "cd server && node index.js",
+    "install-server": "cd server && npm install"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
