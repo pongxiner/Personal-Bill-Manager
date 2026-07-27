@@ -2,17 +2,25 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { authRequired } = require('../middleware/auth');
-const db = require('../db');
+const { getDB } = require('../db');
+
+// 延迟代理：请求时才访问 DB（确保在 initDB() 之后）
+const db = new Proxy({}, { get(_, prop) { return getDB()[prop]; } });
 
 const router = express.Router();
 router.use(authRequired);
 
+function safeParseKeywords(raw) {
+  try { return JSON.parse(raw || '[]'); } catch (e) { return []; }
+}
+
 router.get('/', (req, res) => {
   const categories = db.prepare('SELECT * FROM categories WHERE user_id = ?').all(req.userId);
-  const parsed = categories.map(c => ({
-    ...c,
-    keywords: JSON.parse(c.keywords || '[]')
-  }));
+  const parsed = categories.map(c => {
+    let keywords = [];
+    try { keywords = JSON.parse(c.keywords || '[]'); } catch(e) { keywords = []; }
+    return { ...c, keywords };
+  });
   res.json({ categories: parsed });
 });
 
@@ -21,10 +29,10 @@ router.post('/', (req, res) => {
   if (!c.name || !c.type) return res.status(400).json({ error: '缺少必填字段' });
   const id = c.id || uuidv4();
   db.prepare(
-    'INSERT INTO categories (id, user_id, name, icon, color, type, keywords) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT OR REPLACE INTO categories (id, user_id, name, icon, color, type, keywords) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).run(id, req.userId, c.name, c.icon || '📦', c.color || '#8c8c8c', c.type, JSON.stringify(c.keywords || []));
   const created = db.prepare('SELECT * FROM categories WHERE id = ?').get(id);
-  res.json({ category: { ...created, keywords: JSON.parse(created.keywords || '[]') } });
+  res.json({ category: { ...created, keywords: safeParseKeywords(created.keywords) } });
 });
 
 router.put('/:id', (req, res) => {
@@ -34,7 +42,7 @@ router.put('/:id', (req, res) => {
   ).run(c.name, c.icon || '📦', c.color || '#8c8c8c', c.type, JSON.stringify(c.keywords || []), req.params.id, req.userId);
   if (r.changes === 0) return res.status(404).json({ error: '分类不存在' });
   const updated = db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id);
-  res.json({ category: { ...updated, keywords: JSON.parse(updated.keywords || '[]') } });
+  res.json({ category: { ...updated, keywords: safeParseKeywords(updated.keywords) } });
 });
 
 router.delete('/:id', (req, res) => {
@@ -59,11 +67,11 @@ router.post('/restore-defaults', (req, res) => {
     { id: 'cat_finance', name: '金融', icon: '💰', color: '#d48806', type: 'expense' },
     { id: 'cat_other_expense', name: '其他', icon: '📦', color: '#8c8c8c', type: 'expense' },
     { id: 'cat_salary', name: '工资', icon: '💵', color: '#52c41a', type: 'income' },
-    { id: 'cat_bonus', name: '奖金', icon: '🎁', color: '#73d13d', type: 'income' },
+    { id: 'cat_bonus', name: '奖金', icon: '🏆', color: '#73d13d', type: 'income' },
     { id: 'cat_investment', name: '理财收益', icon: '📈', color: '#36cfc9', type: 'income' },
-    { id: 'cat_reimburse', name: '报销', icon: '🧾', color: '#597ef7', type: 'income' },
-    { id: 'cat_redpacket', name: '红包', icon: '🧧', color: '#ff4d4f', type: 'income' },
-    { id: 'cat_other_income', name: '其他', icon: '📋', color: '#8c8c8c', type: 'income' }
+    { id: 'cat_reimburse', name: '报销退款', icon: '↩️', color: '#597ef7', type: 'income' },
+    { id: 'cat_redpacket', name: '红包转账', icon: '🧧', color: '#ff4d4f', type: 'income' },
+    { id: 'cat_other_income', name: '其他收入', icon: '✨', color: '#8c8c8c', type: 'income' }
   ];
 
   let restored = 0;

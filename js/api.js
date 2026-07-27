@@ -38,7 +38,10 @@ function put(url, body) { return request('PUT', url, body); }
 function del(url) { return request('DELETE', url); }
 
 // ============ DB 兼容接口 ============
-const DB = (() => {
+// 只在服务器模式下定义，本地模式由 db.js 提供
+var DB;
+if (typeof APP_MODE !== 'undefined' && APP_MODE === 'server') {
+DB = (() => {
   let cache_accounts = null;
   let cache_categories = null;
 
@@ -217,3 +220,4 @@ const DB = (() => {
     restoreDefaultCategories
   };
 })();
+} // end if APP_MODE === 'server'

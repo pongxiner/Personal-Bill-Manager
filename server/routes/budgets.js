@@ -1,7 +1,10 @@
 /* ==================== 预算路由 ==================== */
 const express = require('express');
 const { authRequired } = require('../middleware/auth');
-const db = require('../db');
+const { getDB } = require('../db');
+
+// 延迟代理：请求时才访问 DB（确保在 initDB() 之后）
+const db = new Proxy({}, { get(_, prop) { return getDB()[prop]; } });
 
 const router = express.Router();
 router.use(authRequired);

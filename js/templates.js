@@ -6,20 +6,20 @@ const Templates = (() => {
   // 预置模板（首次使用时会写入 localStorage，之后全部可编辑）
   const presetTemplates = [
     // 支出模板
-    { id: 'tpl_breakfast', icon: '🥐', name: '早餐', amount: 15, category: 'cat_food', type: 'expense' },
-    { id: 'tpl_lunch', icon: '🍱', name: '午餐', amount: 35, category: 'cat_food', type: 'expense' },
-    { id: 'tpl_dinner', icon: '🍲', name: '晚餐', amount: 45, category: 'cat_food', type: 'expense' },
-    { id: 'tpl_coffee', icon: '☕', name: '咖啡', amount: 18, category: 'cat_food', type: 'expense' },
-    { id: 'tpl_transport', icon: '🚇', name: '交通', amount: 6, category: 'cat_transport', type: 'expense' },
-    { id: 'tpl_snack', icon: '🍿', name: '零食', amount: 10, category: 'cat_food', type: 'expense' },
-    { id: 'tpl_shopping', icon: '🛒', name: '购物', amount: 99, category: 'cat_shopping', type: 'expense' },
-    { id: 'tpl_movie', icon: '🎬', name: '看电影', amount: 45, category: 'cat_entertainment', type: 'expense' },
+    { id: 'tpl_breakfast', icon: '🥐', name: '早餐', amount: 15, category: 'cat_food', type: 'expense', account: '' },
+    { id: 'tpl_lunch', icon: '🍱', name: '午餐', amount: 35, category: 'cat_food', type: 'expense', account: '' },
+    { id: 'tpl_dinner', icon: '🍲', name: '晚餐', amount: 45, category: 'cat_food', type: 'expense', account: '' },
+    { id: 'tpl_coffee', icon: '☕', name: '咖啡', amount: 18, category: 'cat_food', type: 'expense', account: '' },
+    { id: 'tpl_transport', icon: '🚇', name: '交通', amount: 6, category: 'cat_transport', type: 'expense', account: '' },
+    { id: 'tpl_snack', icon: '🍿', name: '零食', amount: 10, category: 'cat_food', type: 'expense', account: '' },
+    { id: 'tpl_shopping', icon: '🛒', name: '购物', amount: 99, category: 'cat_shopping', type: 'expense', account: '' },
+    { id: 'tpl_movie', icon: '🎬', name: '看电影', amount: 45, category: 'cat_entertainment', type: 'expense', account: '' },
     // 收入模板
-    { id: 'tpl_salary', icon: '💵', name: '工资', amount: 8000, category: 'cat_salary', type: 'income' },
-    { id: 'tpl_bonus', icon: '🎁', name: '奖金', amount: 1000, category: 'cat_bonus', type: 'income' },
-    { id: 'tpl_investment', icon: '📈', name: '理财', amount: 200, category: 'cat_investment', type: 'income' },
-    { id: 'tpl_reimburse', icon: '🧾', name: '报销', amount: 100, category: 'cat_reimburse', type: 'income' },
-    { id: 'tpl_redpacket', icon: '🧧', name: '红包', amount: 200, category: 'cat_redpacket', type: 'income' }
+    { id: 'tpl_salary', icon: '💵', name: '工资', amount: 8000, category: 'cat_salary', type: 'income', account: '' },
+    { id: 'tpl_bonus', icon: '🎁', name: '奖金', amount: 1000, category: 'cat_bonus', type: 'income', account: '' },
+    { id: 'tpl_investment', icon: '📈', name: '理财', amount: 200, category: 'cat_investment', type: 'income', account: '' },
+    { id: 'tpl_reimburse', icon: '🧾', name: '报销', amount: 100, category: 'cat_reimburse', type: 'income', account: '' },
+    { id: 'tpl_redpacket', icon: '🧧', name: '红包', amount: 200, category: 'cat_redpacket', type: 'income', account: '' }
   ];
 
   let userTemplates = [];
@@ -128,7 +128,7 @@ const Templates = (() => {
       if (t.type !== 'expense' && t.type !== 'income') return;
       const key = t.category + '|' + t.type + '|' + Math.round(t.amount);
       if (!patterns[key]) {
-        patterns[key] = { count: 0, category: t.category, type: t.type, amount: t.amount, note: t.note };
+        patterns[key] = { count: 0, category: t.category, type: t.type, amount: t.amount, note: t.note, account: t.account || '' };
       }
       patterns[key].count++;
     });
@@ -145,7 +145,8 @@ const Templates = (() => {
             name: Categories.getName(v.category) || v.note || '常用',
             amount: Math.round(v.amount),
             category: v.category,
-            type: v.type
+            type: v.type,
+            account: v.account || ''
           });
         }
       });

@@ -16,6 +16,7 @@ const App = (() => {
   let filterCategory = 'all';
   let filterSearch = '';
   let editingTransactionId = null;
+  let recordsDateFilter = null; // 图表点击跳转时设置的日期筛选
   let templatesEditMode = false;
   let catMgmtType = 'expense';
   let detailDate = null;    // 图表点击对应的日期
@@ -25,12 +26,27 @@ const App = (() => {
 
   /* ---------- 初始化 ---------- */
   async function init() {
-    // 先尝试初始化认证状态
-    const loggedIn = await Auth.initAuth();
-    if (!loggedIn) {
-      bindAuthEvents();
-      return; // 停在这里，等待用户登录
-    }
+    console.log('[App] init() 开始, 模式:', APP_MODE);
+    try {
+      // 本地模式：跳过登录，直接用 IndexedDB
+      if (APP_MODE === 'local') {
+        document.getElementById('page-auth').style.display = 'none';
+        document.getElementById('app').style.removeProperty('display');
+        document.getElementById('bottom-nav').style.removeProperty('display');
+        var logoutBtn = document.getElementById('menu-logout');
+        if (logoutBtn) logoutBtn.style.display = 'none';
+        await startApp();
+        return;
+      }
+
+      // 服务器模式：需要登录认证
+      console.log('[App] 调用 Auth.initAuth()...');
+      const loggedIn = await Auth.initAuth();
+      console.log('[App] Auth.initAuth() 返回:', loggedIn);
+      if (!loggedIn) {
+        console.log('[App] 未登录，等待用户操作');
+        return; // 停在这里，等待用户登录
+      }
 
     // 登录成功，检查试用期
     if (Auth.isTrialExpired()) {
@@ -40,11 +56,16 @@ const App = (() => {
 
     // 初始化业务
     await startApp();
+    } catch (err) {
+      console.error('[App] init() 出错:', err);
+      toast('初始化失败: ' + err.message);
+    }
   }
 
   async function startApp() {
-    // 初始化数据层（api.js 依赖 auth token，无需 IndexedDB schema）
-    Categories.init();
+    // 初始化数据层
+    await DB.init();
+    await Categories.init();
     const accounts = await DB.getAccounts();
     if (accounts.length === 0) {
       await initDefaultAccounts();
@@ -55,7 +76,7 @@ const App = (() => {
     initNumpad();
     switchPage('home');
     learnTemplates();
-    updateTrialBanner();
+    if (APP_MODE === 'server') updateTrialBanner();
   }
 
   async function learnTemplates() {
@@ -123,8 +144,8 @@ const App = (() => {
     on('quick-accounts', 'click', () => openAccountModal());
 
     // 账单
-    on('records-prev-month', 'click', () => { recordsMonth.setMonth(recordsMonth.getMonth() - 1); refreshRecords(); });
-    on('records-next-month', 'click', () => { recordsMonth.setMonth(recordsMonth.getMonth() + 1); refreshRecords(); });
+    on('records-prev-month', 'click', () => { recordsMonth.setMonth(recordsMonth.getMonth() - 1); recordsDateFilter = null; refreshRecords(); });
+    on('records-next-month', 'click', () => { recordsMonth.setMonth(recordsMonth.getMonth() + 1); recordsDateFilter = null; refreshRecords(); });
     on('records-filter', 'click', toggleFilter);
     on('records-month-label', 'click', openMonthPicker);
     on('month-picker-close', 'click', closeMonthPicker);
@@ -270,6 +291,7 @@ const App = (() => {
         catMgmtType = tab.dataset.type;
         document.querySelectorAll('.cat-mgmt-tab').forEach(x => x.classList.remove('active'));
         tab.classList.add('active');
+        resetCatAddForm();
         renderCategoryList();
       });
     });
@@ -307,56 +329,13 @@ const App = (() => {
 
   /* ---------- 认证事件绑定（在未登录时绑定一次即可） ---------- */
   function bindAuthEvents() {
-    // 登录/注册切换
-    document.querySelectorAll('.auth-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        const mode = tab.dataset.mode;
-        document.querySelectorAll('.auth-tab').forEach(x => x.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById('form-login').style.display = mode === 'login' ? '' : 'none';
-        document.getElementById('form-register').style.display = mode === 'register' ? '' : 'none';
-      });
-    });
-
-    // 注册（仅手机号+密码）
-    document.getElementById('btn-register').addEventListener('click', async () => {
-      const phone = document.getElementById('reg-phone').value.trim();
-      const password = document.getElementById('reg-password').value.trim();
-
-      if (!phone || !password) { toast('请填写完整信息'); return; }
-      if (password.length < 6) { toast('密码至少6位'); return; }
-
-      try {
-        await Auth.register(phone, password);
-        await startApp();
-      } catch (e) {
-        toast(e.message);
-      }
-    });
-
-    // 登录
-    document.getElementById('btn-login').addEventListener('click', async () => {
-      const phone = document.getElementById('login-phone').value.trim();
-      const password = document.getElementById('login-password').value.trim();
-
-      if (!phone || !password) { toast('请填写完整信息'); return; }
-
-      try {
-        await Auth.login(phone, password);
-        // 检查试用期
-        if (Auth.isTrialExpired()) {
-          showPaymentModal();
-          return;
-        }
-        await startApp();
-      } catch (e) {
-        toast(e.message);
-      }
-    });
+    // 内联脚本已通过 onclick 处理所有认证逻辑，此处不再重复绑定
+    console.log('[App] bindAuthEvents: 已由内联脚本处理，跳过');
   }
 
   /* ---------- 试用期 ---------- */
   function updateTrialBanner() {
+    if (APP_MODE !== 'server') return;
     const remaining = Auth.getTrialRemainingDays();
     const user = Auth.getUser();
     if (!user) return;
@@ -649,19 +628,60 @@ const App = (() => {
           renderTemplates();
         });
       });
-      // 编辑（名称/金额）
+      // 编辑（名称/分类/金额/账户）
       container.querySelectorAll('.template-edit').forEach(chip => {
         chip.addEventListener('click', async () => {
           const id = chip.dataset.id;
           const tpl = Templates.getById(id);
           if (!tpl) return;
+
+          // Step 1: 名称
           const name = await showPrompt({ title: '模板名称', defaultValue: tpl.name, placeholder: '如：早餐' });
           if (name === null) return;
+
+          // Step 2: 分类
+          const cats = Categories.getByType(tpl.type);
+          const catIdx = cats.findIndex(c => c.id === tpl.category);
+          const catMsg = cats.map((c, i) => (i + 1) + '.' + c.icon + c.name).join('  ');
+          const catChoice = await showPrompt({
+            title: '选择分类 (输入序号)',
+            defaultValue: catIdx >= 0 ? String(catIdx + 1) : '',
+            placeholder: '输入序号: ' + catMsg,
+            maxLength: 2
+          });
+          if (catChoice === null) return;
+          const catNum = parseInt(catChoice, 10);
+          let category = tpl.category;
+          if (catChoice !== '' && catNum >= 1 && catNum <= cats.length) {
+            category = cats[catNum - 1].id;
+          }
+
+          // Step 3: 金额
           const amountStr = await showPrompt({ title: '模板金额', defaultValue: String(tpl.amount), placeholder: '0.00' });
           if (amountStr === null) return;
           const amount = parseFloat(amountStr);
           if (isNaN(amount) || amount <= 0) { toast('请输入有效金额'); return; }
-          Templates.updateTemplate(id, { name, amount });
+
+          // Step 4: 账户
+          const accounts = await DB.getAccounts();
+          const acctIdx = accounts.findIndex(a => a.id === tpl.account);
+          const acctMsg = accounts.map((a, i) => (i + 1) + '.' + a.name).join('  ');
+          const acctChoice = await showPrompt({
+            title: '选择账户 (输入序号)',
+            defaultValue: acctIdx >= 0 ? String(acctIdx + 1) : '',
+            placeholder: '输入序号: ' + acctMsg + '  留空=不指定',
+            maxLength: 2
+          });
+          if (acctChoice === null) return;
+          const acctNum = parseInt(acctChoice, 10);
+          let account = tpl.account || '';
+          if (acctChoice === '') account = '';
+          else if (acctNum >= 1 && acctNum <= accounts.length) {
+            account = accounts[acctNum - 1].id;
+          }
+
+          const icon = category !== tpl.category ? (Categories.getIcon(category) || tpl.icon) : tpl.icon;
+          Templates.updateTemplate(id, { name, category, amount, account, icon });
           renderTemplates();
         });
       });
@@ -669,23 +689,58 @@ const App = (() => {
       const addBtn = document.getElementById('tpl-add-new');
       if (addBtn) {
         addBtn.addEventListener('click', async () => {
-          const cat = selectedCategory || (Categories.getByType(selectedTab)[0] && Categories.getByType(selectedTab)[0].id);
-          if (!cat) { toast('请先选择分类'); return; }
+          // Step 1: 名称
           const name = await showPrompt({ title: '新建模板名称', defaultValue: '', placeholder: '如：打车' });
           if (!name) return;
+
+          // Step 2: 选择分类
+          const cats = Categories.getByType(selectedTab);
+          if (cats.length === 0) { toast('没有可用分类'); return; }
+          const catMsg = cats.map((c, i) => (i + 1) + '.' + c.icon + c.name).join('  ');
+          const catChoice = await showPrompt({
+            title: '选择分类 (输入序号)',
+            defaultValue: '1',
+            placeholder: '输入序号: ' + catMsg,
+            maxLength: 2
+          });
+          if (catChoice === null) return;
+          const catNum = parseInt(catChoice, 10);
+          if (isNaN(catNum) || catNum < 1 || catNum > cats.length) { toast('无效的分类序号'); return; }
+          const category = cats[catNum - 1].id;
+
+          // Step 3: 金额
           const amountStr = await showPrompt({ title: '模板金额', defaultValue: '', placeholder: '0.00' });
           if (!amountStr) return;
           const amount = parseFloat(amountStr);
           if (isNaN(amount) || amount <= 0) { toast('请输入有效金额'); return; }
-          const icon = Categories.getIcon(cat) || '💰';
-          Templates.addTemplate({ name, amount, category: cat, type: selectedTab, icon });
+
+          // Step 4: 选择账户
+          const accounts = await DB.getAccounts();
+          if (accounts.length === 0) { toast('没有可用账户'); return; }
+          const acctMsg = accounts.map((a, i) => (i + 1) + '.' + a.name).join('  ');
+          const acctChoice = await showPrompt({
+            title: '选择账户 (输入序号)',
+            defaultValue: '1',
+            placeholder: '输入序号: ' + acctMsg + '  留空=不指定',
+            maxLength: 2
+          });
+          if (acctChoice === null) return;
+          let account = '';
+          if (acctChoice !== '') {
+            const acctNum = parseInt(acctChoice, 10);
+            if (isNaN(acctNum) || acctNum < 1 || acctNum > accounts.length) { toast('无效的账户序号'); return; }
+            account = accounts[acctNum - 1].id;
+          }
+
+          const icon = Categories.getIcon(category) || '💰';
+          Templates.addTemplate({ name, amount, category, type: selectedTab, icon, account });
           renderTemplates();
         });
       }
     } else {
       // 正常使用
       container.querySelectorAll('.template-chip[data-id]').forEach(chip => {
-        chip.addEventListener('click', () => {
+        chip.addEventListener('click', async () => {
           const amount = parseFloat(chip.dataset.amount);
           const catId = chip.dataset.cat;
           const type = chip.dataset.type;
@@ -710,6 +765,15 @@ const App = (() => {
             const opt = catSel.querySelector('option[value="' + catId + '"]');
             if (!opt) {
               setTimeout(() => updateAddMode(), 0);
+            }
+          }
+
+          // 应用模板预设账户（如有）
+          const tpl = Templates.getById(chip.dataset.id);
+          if (tpl && tpl.account) {
+            const acctSel = document.getElementById('add-account');
+            if (acctSel && acctSel.querySelector('option[value="' + tpl.account + '"]')) {
+              acctSel.value = tpl.account;
             }
           }
 
@@ -764,7 +828,18 @@ const App = (() => {
         .filter(t => t.type === 'expense' && new Date(t.date).toDateString() === d.toDateString())
         .reduce((s, t) => s + t.amount, 0);
     });
-    Charts.renderHomeTrend(document.getElementById('home-trend-chart'), { labels, values });
+    Charts.renderHomeTrend(document.getElementById('home-trend-chart'), {
+      labels, values,
+      onClick: async (idx, label, value) => {
+        if (!value || value === 0) return;
+        // 计算目标日期并跳转到账单页
+        const targetDate = new Date();
+        targetDate.setDate(targetDate.getDate() - (6 - idx));
+        recordsMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+        recordsDateFilter = fmtLocalDate(targetDate);
+        switchPage('records');
+      }
+    });
 
     // 每日理财贴士
     showDailyTip(false);
@@ -786,6 +861,15 @@ const App = (() => {
     const y = recordsMonth.getFullYear();
     const m = recordsMonth.getMonth();
     let allTx = await DB.getTransactionsByMonth(y, m);
+
+    // 日期筛选（来自图表点击跳转）
+    if (recordsDateFilter) {
+      allTx = allTx.filter(t => {
+        const d = new Date(t.date);
+        const f = new Date(recordsDateFilter);
+        return d.getFullYear() === f.getFullYear() && d.getMonth() === f.getMonth() && d.getDate() === f.getDate();
+      });
+    }
 
     // 应用筛选
     if (filterType !== 'all') {
@@ -811,8 +895,26 @@ const App = (() => {
     document.getElementById('records-expense').textContent = formatMoney(expense);
     document.getElementById('records-balance').textContent = formatMoney(income - expense);
 
+    // 更新日期筛选提示
     const list = document.getElementById('records-list');
     const empty = document.getElementById('records-empty');
+    const dateFilterHint = document.getElementById('records-date-filter-hint');
+    if (recordsDateFilter) {
+      if (!dateFilterHint) {
+        const hint = document.createElement('div');
+        hint.id = 'records-date-filter-hint';
+        hint.style.cssText = 'text-align:center;padding:6px 0;font-size:13px;color:var(--primary);cursor:pointer;';
+        hint.textContent = '📅 已筛选: ' + new Date(recordsDateFilter).toLocaleDateString('zh-CN', { month:'long', day:'numeric' }) + ' · 点击清除';
+        hint.onclick = () => { recordsDateFilter = null; refreshRecords(); };
+        const overview = document.getElementById('records-overview');
+        if (overview) overview.after(hint);
+      } else {
+        dateFilterHint.textContent = '📅 已筛选: ' + new Date(recordsDateFilter).toLocaleDateString('zh-CN', { month:'long', day:'numeric' }) + ' · 点击清除';
+        dateFilterHint.style.display = '';
+      }
+    } else if (dateFilterHint) {
+      dateFilterHint.style.display = 'none';
+    }
 
     if (allTx.length === 0) {
       list.textContent = '';
@@ -1101,6 +1203,24 @@ const App = (() => {
       .map(([id, amt]) => ({ id, name: Categories.getName(id), amount: amt, icon: Categories.getIcon(id), color: Categories.getColor(id) }))
       .sort((a, b) => b.amount - a.amount);
 
+    // 饼图：分类占比（用排行榜中前10的数据）
+    const pieTitle = document.getElementById('stats-pie-title');
+    if (pieTitle) pieTitle.textContent = typeLabel + '分类占比';
+    const pieData = ranked.slice(0, 10).map(d => ({ id: d.id, name: d.name, amount: d.amount, color: d.color }));
+    // 合并剩余分类为"其他"
+    if (ranked.length > 10) {
+      const restAmount = ranked.slice(10).reduce((s, d) => s + d.amount, 0);
+      if (restAmount > 0) {
+        pieData.push({ id: '_other', name: '其他', amount: restAmount, color: '#bfbfbf' });
+      }
+    }
+    Charts.renderPie(document.getElementById('stats-pie-chart'), Object.assign(pieData, {
+      onClick: (catId, catName) => {
+        if (catId === '_other') return;
+        openCategoryDetail(catId, statsType);
+      }
+    }));
+
     const rankHtml = ranked.map((d, i) => {
       const pct = total > 0 ? (d.amount / total) * 100 : 0;
       return '<div class="rank-item rank-clickable" data-cat="' + d.id + '">' +
@@ -1207,39 +1327,28 @@ const App = (() => {
     document.getElementById('modal-detail').classList.remove('show');
   }
 
-  /** 图表点击查看当日明细 */
+  /** 图表点击 → 跳转到账单页面对应日期 */
   async function onChartPointClick(idx, label, value) {
-    if (value === 0) return;
+    if (!value || value === 0) return;
+
     const { start } = getPeriodRange(statsPeriod, statsAnchor);
     let targetDate;
+
     if (statsPeriod === 'week') {
       targetDate = new Date(start);
       targetDate.setDate(targetDate.getDate() + idx);
     } else if (statsPeriod === 'month') {
-      targetDate = new Date(start.getFullYear(), start.getMonth(), parseInt(label));
+      const day = parseInt(label, 10);
+      targetDate = new Date(start.getFullYear(), start.getMonth(), day);
     } else {
-      targetDate = new Date(start.getFullYear(), parseInt(label) - 1, 15);
+      const month = parseInt(label, 10);
+      targetDate = new Date(start.getFullYear(), month - 1, 1);
     }
 
-    const allTx = await DB.getTransactionsByDateRange(
-      new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()),
-      statsPeriod === 'month'
-        ? new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59, 999)
-        : new Date(targetDate.getFullYear(), targetDate.getMonth() + (statsPeriod === 'year' ? 1 : 0), statsPeriod === 'year' ? 0 : targetDate.getDate(), 23, 59, 59, 999)
-    );
-
-    // Actually let's simplify - filter by exact date
-    const dateFiltered = allTx.filter(t => {
-      const d = new Date(t.date);
-      if (statsPeriod === 'year') {
-        return d.getFullYear() === targetDate.getFullYear() && d.getMonth() === targetDate.getMonth();
-      }
-      return d.toDateString() === targetDate.toDateString();
-    });
-    const typeFiltered = dateFiltered.filter(t => t.type === statsType);
-    const typeLabel = statsType === 'expense' ? '支出' : '收入';
-    const dateLabel = statsPeriod === 'year' ? label : (statsPeriod === 'week' ? label : label + '日');
-    openDetailModal(typeLabel + '明细 - ' + dateLabel, typeFiltered);
+    // 设置日期筛选并跳转到账单页
+    recordsMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+    recordsDateFilter = fmtLocalDate(targetDate);
+    switchPage('records');
   }
 
   /* ---------- 我的页 ---------- */
@@ -1297,7 +1406,9 @@ const App = (() => {
     document.getElementById('add-note').value = '';
     document.getElementById('voice-section').style.display = '';
     updateAddMode();
-    populateAccountSelect('add-account');
+    // 读取该类型的默认账户
+    const defaultAcct = localStorage.getItem('defaultAccount_' + selectedTab);
+    populateAccountSelect('add-account', defaultAcct || undefined);
     renderTemplates();
   }
 
@@ -1374,6 +1485,13 @@ const App = (() => {
       catSelect.onchange = () => {
         selectedCategory = catSelect.value;
       };
+
+      // 读取该类型的默认账户（编辑模式不覆盖已选账户）
+      if (!editingTransactionId) {
+        const defaultAcct = localStorage.getItem('defaultAccount_' + selectedTab);
+        populateAccountSelect('add-account', defaultAcct || undefined);
+      }
+
       renderTemplates();
     }
   }
@@ -1455,6 +1573,11 @@ const App = (() => {
     // 记录使用习惯
     if (selectedTab !== 'transfer') {
       Templates.recordUsage(selectedCategory, selectedTab, amount);
+      // 记住该类型的默认账户
+      const usedAccount = document.getElementById('add-account').value;
+      if (usedAccount) {
+        localStorage.setItem('defaultAccount_' + selectedTab, usedAccount);
+      }
     }
   }
 
@@ -1793,16 +1916,53 @@ const App = (() => {
     document.getElementById('modal-categories').classList.remove('show');
   }
 
-  // 预设图标列表
-  const PRESET_ICONS = [
-    '🍚','🍜','🍔','🍰','☕','🍺',
-    '🚌','🚇','✈️','🚲','🚗','⛽',
-    '🛒','👗','💄','👟','🎁','📱',
-    '🏠','💡','💧','🔧','🏥','💊',
-    '📚','🎓','🎬','🎮','🎵','🏋️',
-    '📞','📶','💳','💰','📈','💸',
-    '👶','🐱','🐶','🌿','🎂','❤️',
-    '✂️','🎨','📷','🎤','🖥️','⌚'
+  // 预设图标列表 — 按支出/收入分开
+  const PRESET_ICONS_EXPENSE = [
+    // 餐饮美食
+    '🍚','🍜','🍔','🍰','☕','🍺','🍱','🍲','🥐','🍿','🧋','🍩','🥡','🍕',
+    // 交通出行
+    '🚌','🚇','✈️','🚲','🚗','⛽','🚕','🚄','🛵','🚢','🚶','🅿️',
+    // 购物服饰
+    '🛒','👗','💄','👟','👔','💍','⌚','👜','👒','🧥',
+    // 房租住房
+    '🏠','💡','💧','🔧','🏡','🛏️','🚿','🪴','🛋️','🔑',
+    // 医疗药品
+    '🏥','💊','🩺','🦷','💉','🩹','🧪','🤒',
+    // 教育学习
+    '📚','🎓','✏️','📝','💻','🔬','📖','🎒',
+    // 娱乐电影
+    '🎬','🎮','🎵','🏋️','🎤','🎸','⚽','🏀','🎱','🎳','🎪','🎯',
+    // 通讯
+    '📞','📶','📡','📱',
+    // 人情红包
+    '🧧','🎁','💝','🌸','🎊',
+    // 宠物
+    '🐱','🐶','🐾','🦴',
+    // 日用品
+    '🧴','🧹','🧻','🪥','🧺',
+    // 其他支出
+    '💳','💰','📦','💸','🛡️','🔐'
+  ];
+
+  const PRESET_ICONS_INCOME = [
+    // 工资薪资
+    '💵','💴','💶','💷','💰','🪙',
+    // 奖金
+    '🏆','🎖️','🥇','🎁','🏅',
+    // 兼职
+    '💼','👜','⏰','📋','🖊️',
+    // 理财投资
+    '📈','📊','💹','🏦','💎','🪴','🏠','📉',
+    // 红包
+    '🧧','🎊','🎈','💝',
+    // 转账
+    '💸','↔️','🔄','💳','🏧',
+    // 退款
+    '↩️','💲','♻️',
+    // 租金收益
+    '🏠','🏢','🔑','🏘️','📄',
+    // 其他收入
+    '✨','🪙','💡','🎯'
   ];
 
   let selectedCatIcon = '❓';
@@ -1810,7 +1970,9 @@ const App = (() => {
   function renderPresetIcons() {
     const grid = document.getElementById('preset-icon-grid');
     if (!grid) return;
-    grid.innerHTML = PRESET_ICONS.map(icon => {
+    // 根据当前分类管理 tab 展示不同图标
+    const icons = catMgmtType === 'income' ? PRESET_ICONS_INCOME : PRESET_ICONS_EXPENSE;
+    grid.innerHTML = icons.map(icon => {
       const sel = icon === selectedCatIcon ? ' selected' : '';
       return '<div class="preset-icon-item' + sel + '" data-icon="' + icon + '">' + icon + '</div>';
     }).join('');
@@ -1830,11 +1992,29 @@ const App = (() => {
   function resetCatAddForm() {
     selectedCatIcon = '❓';
     document.getElementById('new-cat-name').value = '';
+    const customIcon = document.getElementById('new-cat-custom-icon');
+    if (customIcon) customIcon.value = '';
     const preview = document.getElementById('cat-icon-preview');
     preview.textContent = '❓';
     preview.classList.remove('has-icon');
     renderPresetIcons();
   }
+
+  // 自定义图标输入实时预览
+  on('new-cat-custom-icon', 'input', (e) => {
+    const val = e.target.value.trim();
+    const preview = document.getElementById('cat-icon-preview');
+    if (val) {
+      preview.textContent = val;
+      preview.classList.add('has-icon');
+      selectedCatIcon = val;
+      // 取消预设图标的选中状态
+      document.querySelectorAll('.preset-icon-item').forEach(x => x.classList.remove('selected'));
+    } else {
+      preview.textContent = selectedCatIcon || '❓';
+      if (selectedCatIcon === '❓') preview.classList.remove('has-icon');
+    }
+  });
 
   function renderCategoryList() {
     const cats = Categories.getByType(catMgmtType);
@@ -1918,7 +2098,9 @@ const App = (() => {
 
   async function addCategory() {
     const name = document.getElementById('new-cat-name').value.trim();
-    const icon = selectedCatIcon;
+    const customIconEl = document.getElementById('new-cat-custom-icon');
+    const customIcon = customIconEl ? customIconEl.value.trim() : '';
+    const icon = customIcon || selectedCatIcon;
     if (!name) { toast('请输入分类名称'); return; }
 
     await DB.saveCategory({
@@ -2163,6 +2345,14 @@ const App = (() => {
     return amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
+  /** 将 Date 对象转为本地日期字符串 YYYY-MM-DD（避免 toISOString 时区偏移） */
+  function fmtLocalDate(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
   function toast(msg) {
     const el = document.getElementById('toast');
     el.textContent = msg;
@@ -2248,8 +2438,12 @@ const App = (() => {
   }
 
   /* ---------- 启动 ---------- */
+  // 服务端模式下认证事件已由内联脚本处理
   init().then(() => {
-    console.log('财务工作台已就绪');
+    console.log('[App] 财务工作台已就绪');
+  }).catch(err => {
+    console.error('[App] 启动失败:', err);
+    document.body.innerHTML = '<div style="padding:40px;text-align:center;color:red;"><h3>启动失败</h3><p>' + err.message + '</p></div>';
   });
 
   return {

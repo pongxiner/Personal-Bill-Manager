@@ -1,6 +1,6 @@
 /* ==================== IndexedDB 数据存储层 ==================== */
 
-const DB = (() => {
+var DB = (() => {
   const DB_NAME = 'finance_workbench';
   const DB_VERSION = 1;
   let db = null;
@@ -76,19 +76,67 @@ const DB = (() => {
     });
   }
 
+  /* ---------- 账户余额同步 ---------- */
+  async function syncAccountBalance(accountId, delta) {
+    if (!accountId) return;
+    const account = await getAccountById(accountId);
+    if (account) {
+      account.balance = (account.balance || 0) + delta;
+      await put('accounts', account);
+    }
+  }
+
   /* ---------- 交易 ---------- */
   async function addTransaction(t) {
     if (!t.id) t.id = uid();
     if (!t.createdAt) t.createdAt = new Date().toISOString();
+
+    // 同步账户余额：支出则扣减、收入则增加
+    if (t.account && t.type !== 'transfer') {
+      const delta = t.type === 'expense' ? -t.amount : t.amount;
+      await syncAccountBalance(t.account, delta);
+    }
+
     return put('transactions', t);
   }
 
   async function updateTransaction(t) {
-    return put('transactions', t);
+    // 先撤销旧交易的影响
+    const old = await getTransactionById(t.id);
+    if (old && old.account && old.type !== 'transfer') {
+      const reverseDelta = old.type === 'expense' ? old.amount : -old.amount;
+      await syncAccountBalance(old.account, reverseDelta);
+    }
+
+    // 更新记录
+    const result = await put('transactions', t);
+
+    // 再应用新交易的影响
+    if (t.account && t.type !== 'transfer') {
+      const delta = t.type === 'expense' ? -t.amount : t.amount;
+      await syncAccountBalance(t.account, delta);
+    }
+
+    return result;
   }
 
   async function deleteTransaction(id) {
+    // 先撤销该交易对账户余额的影响
+    const old = await getTransactionById(id);
+    if (old && old.account && old.type !== 'transfer') {
+      const reverseDelta = old.type === 'expense' ? old.amount : -old.amount;
+      await syncAccountBalance(old.account, reverseDelta);
+    }
+
     return del('transactions', id);
+  }
+
+  async function getTransactionById(id) {
+    return new Promise((resolve, reject) => {
+      const r = tx('transactions').get(id);
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+    });
   }
 
   async function getAllTransactions() {
@@ -184,19 +232,30 @@ const DB = (() => {
 
   /* ---------- 批量操作 ---------- */
   async function bulkAddTransactions(list) {
-    return new Promise((resolve, reject) => {
+    // 先插入所有交易
+    const count = await new Promise((resolve, reject) => {
       const store = tx('transactions', 'readwrite');
-      let count = 0;
+      let cnt = 0;
       list.forEach(t => {
         if (!t.id) t.id = uid();
         if (!t.createdAt) t.createdAt = new Date().toISOString();
         const r = store.put(t);
-        r.onsuccess = () => { count++; };
+        r.onsuccess = () => { cnt++; };
       });
       const transaction = store.transaction;
-      transaction.oncomplete = () => resolve(count);
+      transaction.oncomplete = () => resolve(cnt);
       transaction.onerror = () => reject(transaction.error);
     });
+
+    // 同步账户余额
+    for (const t of list) {
+      if (t.account && t.type !== 'transfer') {
+        const delta = t.type === 'expense' ? -t.amount : t.amount;
+        await syncAccountBalance(t.account, delta);
+      }
+    }
+
+    return count;
   }
 
   async function clearAll() {

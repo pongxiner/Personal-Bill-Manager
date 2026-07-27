@@ -13,32 +13,45 @@ app.use(express.json({ limit: '10mb' }));
 // 静态文件（前端页面）
 app.use(express.static(path.join(__dirname, '..')));
 
-// API 路由
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/transactions', require('./routes/transactions'));
-app.use('/api/accounts', require('./routes/accounts'));
-app.use('/api/categories', require('./routes/categories'));
-app.use('/api/budgets', require('./routes/budgets'));
-app.use('/api/settings', require('./routes/settings'));
+async function start() {
+  // 异步初始化数据库（sql.js 需要加载 WASM）
+  const { initDB } = require('./db');
+  await initDB();
 
-// SPA fallback — 前端路由处理
-app.get('*', (req, res) => {
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: '接口不存在' });
-  }
-  res.sendFile(path.join(__dirname, '..', 'index.html'));
-});
+  // 数据库就绪后加载路由
+  app.use('/api/auth', require('./routes/auth'));
+  app.use('/api/transactions', require('./routes/transactions'));
+  app.use('/api/accounts', require('./routes/accounts'));
+  app.use('/api/categories', require('./routes/categories'));
+  app.use('/api/budgets', require('./routes/budgets'));
+  app.use('/api/settings', require('./routes/settings'));
 
-app.listen(PORT, () => {
-  console.log(`[Server] 财务工作台后端已启动: http://localhost:${PORT}`);
-  console.log(`[Server] API 文档:`);
-  console.log(`  POST /api/auth/send-code    - 发送验证码`);
-  console.log(`  POST /api/auth/register     - 注册`);
-  console.log(`  POST /api/auth/login        - 登录`);
-  console.log(`  GET  /api/auth/me           - 用户信息`);
-  console.log(`  *    /api/transactions/*    - 交易 CRUD`);
-  console.log(`  *    /api/accounts/*        - 账户 CRUD`);
-  console.log(`  *    /api/categories/*      - 分类 CRUD`);
-  console.log(`  *    /api/budgets/*         - 预算 CRUD`);
-  console.log(`  *    /api/settings/*        - 设置`);
+  // SPA fallback — 前端路由处理
+  app.get('*', (req, res) => {
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: '接口不存在' });
+    }
+    res.sendFile(path.join(__dirname, '..', 'index.html'));
+  });
+
+  app.listen(PORT, () => {
+    const { getProviderInfo } = require('./sms');
+    const smsInfo = getProviderInfo();
+    console.log(`[Server] 财务工作台后端已启动: http://localhost:${PORT}`);
+    console.log(`[Server] SMS 短信服务: ${smsInfo.provider}${smsInfo.isDev ? ' (开发模式)' : ''}`);
+    console.log(`[Server] API 文档:`);
+    console.log(`  POST /api/auth/register     - 注册`);
+    console.log(`  POST /api/auth/login        - 登录`);
+    console.log(`  GET  /api/auth/me           - 用户信息`);
+    console.log(`  *    /api/transactions/*    - 交易 CRUD`);
+    console.log(`  *    /api/accounts/*        - 账户 CRUD`);
+    console.log(`  *    /api/categories/*      - 分类 CRUD`);
+    console.log(`  *    /api/budgets/*         - 预算 CRUD`);
+    console.log(`  *    /api/settings/*        - 设置`);
+  });
+}
+
+start().catch(err => {
+  console.error('[Server] 启动失败:', err);
+  process.exit(1);
 });

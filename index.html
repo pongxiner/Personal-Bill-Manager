@@ -6,14 +6,17 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>财务工作台</title>
-  <link rel="stylesheet" href="css/style.css?v=15">
+  <link rel="stylesheet" href="css/style.css?v=27">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
-<!-- ==================== 登录/注册页面 ==================== -->
-<div id="page-auth" class="auth-page" style="display:none">
+<!-- 模式开关: 'local' = 本地IndexedDB无需登录 | 'server' = 后端API需登录 -->
+<script>const APP_MODE = 'server';</script>
+
+<!-- ==================== 登录/注册���面 ==================== -->
+<div id="page-auth" class="auth-page">
   <div class="auth-card">
     <div class="auth-logo">💰</div>
     <h1 class="auth-title">财务工作台</h1>
@@ -27,15 +30,37 @@
 
     <!-- 登录表单 -->
     <div id="form-login" class="auth-form">
+      <!-- 验证码功能暂时隐藏，后续需要时取消注释即可
+      <div class="login-method-switch">
+        <span class="lms-btn active" data-lm="password" id="lms-password">密码登录</span>
+        <span class="lms-btn" data-lm="code" id="lms-code">验证码登录</span>
+      </div>
+      -->
       <div class="input-group">
         <label>手机号</label>
         <input type="tel" id="login-phone" placeholder="请输入手机号" maxlength="11">
       </div>
-      <div class="input-group">
-        <label>密码</label>
-        <input type="password" id="login-password" placeholder="请输入密码" maxlength="20">
+      <div id="login-password-group">
+        <div class="input-group">
+          <label>密码</label>
+          <input type="password" id="login-password" placeholder="请输入密码" maxlength="20">
+        </div>
       </div>
+      <!-- 验证码登录：后续需要时取消注释
+      <div id="login-code-group" style="display:none">
+        <div class="input-group">
+          <label>验证码</label>
+          <div class="code-row">
+            <input type="text" id="login-code" placeholder="6位验证码" maxlength="6" class="code-input">
+            <button class="code-send-btn" id="login-send-code" onclick="window._sendLoginCode()">获取验证码</button>
+          </div>
+        </div>
+      </div>
+      -->
       <button class="auth-btn" id="btn-login">登录</button>
+      <div class="auth-links">
+        <a href="javascript:void(0)" onclick="window._showResetPwd()" class="auth-link">忘记密码？</a>
+      </div>
     </div>
 
     <!-- 注册表单 -->
@@ -48,12 +73,203 @@
         <label>密码</label>
         <input type="password" id="reg-password" placeholder="设置密码（至少6位）" maxlength="20">
       </div>
+      <div class="input-group">
+        <label>确认密码</label>
+        <input type="password" id="reg-password-confirm" placeholder="请再次输入密码" maxlength="20">
+      </div>
       <button class="auth-btn" id="btn-register">注册</button>
+    </div>
+
+    <div id="form-reset" class="auth-form" style="display:none">
+      <h3 class="reset-title">重置密码</h3>
+      <div class="input-group">
+        <label>手机号</label>
+        <input type="tel" id="reset-phone" placeholder="请输入已注册手机号" maxlength="11">
+      </div>
+      <div class="input-group">
+        <label>验证码</label>
+        <div class="code-row">
+          <input type="text" id="reset-code" placeholder="6位验证码" maxlength="6" class="code-input">
+          <button class="code-send-btn" id="reset-send-code" onclick="window._sendResetCode()">获取验证码</button>
+        </div>
+      </div>
+      <div class="input-group">
+        <label>新密码</label>
+        <input type="password" id="reset-password" placeholder="设置新密码（至少6位）" maxlength="20">
+      </div>
+      <button class="auth-btn" id="btn-reset-password">重置密码</button>
+      <div class="auth-links">
+        <a href="javascript:void(0)" onclick="window._backToLogin()" class="auth-link">← 返回登录</a>
+      </div>
     </div>
   </div>
 </div>
 
-<div id="app">
+<!-- 登录/注册逻辑 — 内联全局函数，通过 onclick 调用 -->
+<script>
+// ========== 工具函数 ==========
+function _itoast(msg) {
+  console.log('[Toast]', msg);
+  var el = document.getElementById('toast');
+  if (!el) { alert(msg); return; }
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._tid);
+  el._tid = setTimeout(function() { el.classList.remove('show'); }, 2000);
+}
+function _iphone(p) { return /^1[3-9]\d{9}$/.test(p); }
+
+// ========== Tab 切换（登录/注册） ==========
+document.getElementById('tab-login').onclick = function() {
+  document.getElementById('form-login').style.display = '';
+  document.getElementById('form-register').style.display = 'none';
+  this.classList.add('active');
+  document.getElementById('tab-register').classList.remove('active');
+};
+document.getElementById('tab-register').onclick = function() {
+  document.getElementById('form-register').style.display = '';
+  document.getElementById('form-login').style.display = 'none';
+  this.classList.add('active');
+  document.getElementById('tab-login').classList.remove('active');
+};
+
+// ========== 密码登录 ==========
+document.getElementById('btn-login').onclick = function() {
+  var p = document.getElementById('login-phone').value.trim();
+  var pw = document.getElementById('login-password').value.trim();
+
+  if (!p || !pw) { _itoast('请填写完整信息'); return; }
+  if (!_iphone(p)) { _itoast('请输入正确的手机号'); return; }
+
+  fetch('/api/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: p, password: pw })
+  }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+    .then(function(result) {
+      if (!result.ok) throw new Error(result.data.error || '登录失败');
+      localStorage.setItem('finance_token', result.data.token);
+      localStorage.setItem('finance_user', JSON.stringify(result.data.user));
+      _itoast('登录成功！');
+      setTimeout(function() { location.reload(); }, 500);
+    }).catch(function(e) { _itoast(e.message); });
+};
+
+// ========== 注册 ==========
+document.getElementById('btn-register').onclick = function() {
+  var p = document.getElementById('reg-phone').value.trim();
+  var pw = document.getElementById('reg-password').value.trim();
+  var pwc = document.getElementById('reg-password-confirm').value.trim();
+
+  if (!p || !pw || !pwc) { _itoast('请填写完整信息'); return; }
+  if (!_iphone(p)) { _itoast('请输入正确的手机号'); return; }
+  if (pw.length < 6) { _itoast('密码至少6位'); return; }
+  if (pw !== pwc) { _itoast('两次输入的密码不一致'); return; }
+
+  fetch('/api/auth/register', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: p, password: pw })
+  }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+    .then(function(result) {
+      if (!result.ok) throw new Error(result.data.error || '注册失败');
+      localStorage.setItem('finance_token', result.data.token);
+      localStorage.setItem('finance_user', JSON.stringify(result.data.user));
+      _itoast('注册成功！');
+      setTimeout(function() { location.reload(); }, 500);
+    }).catch(function(e) { _itoast(e.message); });
+};
+
+console.log('[InlineAuth] 登录/注册已就绪');
+
+	// ========== 忘记密码 → 重置密码表单 ==========
+	window._showResetPwd = function() {
+	  // 把登录手机号自动带入
+	  var loginPhone = document.getElementById('login-phone').value.trim();
+	  if (loginPhone) {
+	    document.getElementById('reset-phone').value = loginPhone;
+	  }
+	  document.getElementById('form-login').style.display = 'none';
+	  document.getElementById('form-register').style.display = 'none';
+	  document.getElementById('form-reset').style.display = '';
+	  document.getElementById('tab-login').classList.remove('active');
+	  document.getElementById('tab-register').classList.remove('active');
+	};
+
+	window._backToLogin = function() {
+	  document.getElementById('form-reset').style.display = 'none';
+	  document.getElementById('form-login').style.display = '';
+	  document.getElementById('tab-login').classList.add('active');
+	  document.getElementById('tab-register').classList.remove('active');
+	};
+
+	// ========== 发送重置密码验证码 ==========
+	window._sendResetCode = function() {
+	  var phone = document.getElementById('reset-phone').value.trim();
+	  if (!_iphone(phone)) { _itoast('请输入正确的手机号'); return; }
+
+	  var btn = document.getElementById('reset-send-code');
+	  btn.disabled = true;
+	  btn.textContent = '发送中...';
+
+	  fetch('/api/auth/send-code', {
+	    method: 'POST', headers: { 'Content-Type': 'application/json' },
+	    body: JSON.stringify({ phone: phone })
+	  }).then(function(r) { return r.json(); })
+	    .then(function(d) {
+	      if (d.success) {
+	        _itoast(d.hint ? '验证码: ' + d.code + '（开发模式）' : '验证码已发送');
+	        // 倒计时60秒
+	        var sec = 60;
+	        btn.textContent = sec + 's后重发';
+	        var timer = setInterval(function() {
+	          sec--;
+	          if (sec <= 0) {
+	            clearInterval(timer);
+	            btn.disabled = false;
+	            btn.textContent = '获取验证码';
+	          } else {
+	            btn.textContent = sec + 's后重发';
+	          }
+	        }, 1000);
+	      } else {
+	        throw new Error(d.error || '发送失败');
+	      }
+	    }).catch(function(e) {
+	      _itoast(e.message);
+	      btn.disabled = false;
+	      btn.textContent = '获取验证码';
+	    });
+	};
+
+	// ========== 重置密码提交 ==========
+	document.getElementById('btn-reset-password').onclick = function() {
+	  var phone = document.getElementById('reset-phone').value.trim();
+	  var code = document.getElementById('reset-code').value.trim();
+	  var pw = document.getElementById('reset-password').value.trim();
+
+	  if (!phone || !code || !pw) { _itoast('请填写完整信息'); return; }
+	  if (!_iphone(phone)) { _itoast('请输入正确的手机号'); return; }
+	  if (code.length !== 6) { _itoast('请输入6位验证码'); return; }
+	  if (pw.length < 6) { _itoast('新密码至少6位'); return; }
+
+	  fetch('/api/auth/reset-password', {
+	    method: 'POST', headers: { 'Content-Type': 'application/json' },
+	    body: JSON.stringify({ phone: phone, code: code, password: pw })
+	  }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+	    .then(function(result) {
+	      if (!result.ok) throw new Error(result.data.error || '重置失败');
+	      _itoast('密码重置成功，请登录');
+	      window._backToLogin();
+	      // 清空表单
+	      document.getElementById('reset-phone').value = '';
+	      document.getElementById('reset-code').value = '';
+	      document.getElementById('reset-password').value = '';
+	      document.getElementById('login-password').value = '';
+	    }).catch(function(e) { _itoast(e.message); });
+	};
+</script>
+
+
+<div id="app" style="display:none">
 
   <!-- ==================== 首页 ==================== -->
   <section id="page-home" class="page active">
@@ -240,6 +456,14 @@
       <div class="card">
         <div class="chart-container tall">
           <canvas id="stats-line-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- 分类饼图 -->
+      <div class="card" id="stats-pie-card">
+        <div class="card-title" id="stats-pie-title">支出分类占比</div>
+        <div class="chart-container pie-container">
+          <canvas id="stats-pie-chart"></canvas>
         </div>
       </div>
 
@@ -517,7 +741,7 @@
 
       <div class="import-guide" id="import-guide-wechat">
         <p><b>微信导出步骤：</b></p>
-        <p>我 → 服务 → 钱包 → 账单 → 右上角 ··· → 常见问题 → 下载账单 → 选择"用于个人对账"</p>
+        <p>我 → 服务 → 钱包 → 账单 → 右上角 ··· → 下载账单 → 选择"用于个人对账"</p>
         <p>收到邮件后下载账单文件（CSV 或 Excel），在此上传</p>
       </div>
       <div class="import-guide" id="import-guide-alipay" style="display:none">
@@ -610,6 +834,7 @@
       <div class="cat-mgmt-add-new">
         <div class="cat-icon-preview" id="cat-icon-preview">❓</div>
         <input type="text" id="new-cat-name" class="cat-name-input" placeholder="输入分类名称" maxlength="10">
+        <input type="text" id="new-cat-custom-icon" class="cat-custom-icon-input" placeholder="自定义图标 (emoji或文字, 选填)" maxlength="4">
         <div class="preset-icon-grid" id="preset-icon-grid"></div>
         <button class="btn-primary" id="cat-add-btn" style="width:100%;padding:12px;font-size:15px;border-radius:10px">确认添加</button>
       </div>
@@ -749,14 +974,15 @@
   </div>
 </div>
 
-<script src="js/auth.js?v=15"></script>
-<script src="js/api.js?v=15"></script>
-<script src="js/categories.js?v=15"></script>
-<script src="js/templates.js?v=15"></script>
-<script src="js/voice.js?v=15"></script>
-<script src="js/csv-import.js?v=15"></script>
-<script src="js/charts.js?v=15"></script>
-<script src="js/advisor.js?v=15"></script>
-<script src="js/app.js?v=15"></script>
+<script src="js/auth.js?v=27"></script>
+<script src="js/db.js?v=27"></script>
+<script src="js/api.js?v=27"></script>
+<script src="js/categories.js?v=27"></script>
+<script src="js/templates.js?v=27"></script>
+<script src="js/voice.js?v=27"></script>
+<script src="js/csv-import.js?v=27"></script>
+<script src="js/charts.js?v=27"></script>
+<script src="js/advisor.js?v=27"></script>
+<script src="js/app.js?v=27"></script>
 </body>
 </html>

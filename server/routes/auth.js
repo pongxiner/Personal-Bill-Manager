@@ -3,31 +3,129 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { signToken, authRequired } = require('../middleware/auth');
-const db = require('../db');
+const { getDB } = require('../db');
+const sms = require('../sms');
+
+// 延迟代理：请求时才访问 DB（确保在 initDB() 之后）
+const db = new Proxy({}, { get(_, prop) { return getDB()[prop]; } });
 
 const router = express.Router();
 
 // ============ 发送验证码 ============
-// 开发模式下验证码固定为 888888，并在响应中返回供调试
-router.post('/send-code', (req, res) => {
+router.post('/send-code', async (req, res) => {
   const { phone } = req.body;
   if (!phone || !/^1[3-9]\d{9}$/.test(phone)) {
     return res.status(400).json({ error: '请输入正确的手机号' });
   }
 
-  const code = '888888'; // 开发模式下固定验证码
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  try {
+    // 调用短信服务商发送验证码
+    const result = await sms.sendCode(phone);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-  // 清理旧验证码
-  db.prepare('UPDATE verify_codes SET used = 1 WHERE phone = ? AND used = 0').run(phone);
+    // 清理旧验证码
+    db.prepare('UPDATE verify_codes SET used = 1 WHERE phone = ? AND used = 0').run(phone);
 
-  // 保存验证码
-  db.prepare(
-    'INSERT INTO verify_codes (phone, code, expires_at) VALUES (?, ?, ?)'
-  ).run(phone, code, expiresAt);
+    // 保存验证码
+    db.prepare(
+      'INSERT INTO verify_codes (phone, code, expires_at) VALUES (?, ?, ?)'
+    ).run(phone, result.code, expiresAt);
 
-  console.log(`[SMS] 验证码已发送到 ${phone}: ${code}`);
-  res.json({ success: true, message: '验证码已发送' });
+    console.log(`[Auth] 验证码: ${result.code} → ${phone} (provider: ${sms.getProviderInfo().provider})`);
+
+    // dev 模式下返回 code 方便调试，生产模式不返回
+    const response = { success: true, message: '验证码已发送' };
+    if (sms.getProviderInfo().isDev) {
+      response.code = result.code;
+      response.hint = '开发模式';
+    }
+    res.json(response);
+  } catch (err) {
+    console.error('[Auth] 发送验证码失败:', err.message);
+    res.status(500).json({ error: err.message || '短信发送失败，请稍后重试' });
+  }
+});
+
+// ============ 验证码登录 ============
+router.post('/login-by-code', (req, res) => {
+  const { phone, code } = req.body;
+
+  if (!phone || !code) {
+    return res.status(400).json({ error: '请输入手机号和验证码' });
+  }
+  if (!/^1[3-9]\d{9}$/.test(phone)) {
+    return res.status(400).json({ error: '请输入正确的手机号' });
+  }
+
+  // 验证验证码
+  const record = db.prepare(
+    'SELECT * FROM verify_codes WHERE phone = ? AND code = ? AND used = 0 AND expires_at > ? ORDER BY id DESC LIMIT 1'
+  ).get(phone, code, new Date().toISOString());
+
+  if (!record) {
+    return res.status(400).json({ error: '验证码错误或已过期' });
+  }
+
+  // 标记验证码已使用
+  db.prepare('UPDATE verify_codes SET used = 1 WHERE id = ?').run(record.id);
+
+  // 查找或创建用户
+  let user = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
+  if (!user) {
+    // 新用户：自动注册
+    const now = new Date().toISOString();
+    const id = uuidv4();
+    const passwordHash = bcrypt.hashSync(phone.slice(-6), 10); // 默认密码为手机号后6位
+    db.prepare(`
+      INSERT INTO users (id, phone, password_hash, nickname, trial_start, trial_days, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, phone, passwordHash, '', now, 30, now);
+    createDefaultCategories(id);
+    createDefaultAccounts(id);
+    user = db.prepare('SELECT id, phone, nickname, trial_start, trial_days, paid, paid_until FROM users WHERE id = ?').get(id);
+  }
+
+  const token = signToken(user);
+  res.json({ token, user: { id: user.id, phone: user.phone, nickname: user.nickname, trial_start: user.trial_start, trial_days: user.trial_days, paid: user.paid, paid_until: user.paid_until }, message: '登录成功' });
+});
+
+// ============ 重置密码 ============
+router.post('/reset-password', (req, res) => {
+  const { phone, code, password } = req.body;
+
+  if (!phone || !code || !password) {
+    return res.status(400).json({ error: '请填写完整信息' });
+  }
+  if (!/^1[3-9]\d{9}$/.test(phone)) {
+    return res.status(400).json({ error: '请输入正确的手机号' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: '密码至少6位' });
+  }
+
+  // 验证验证码
+  const record = db.prepare(
+    'SELECT * FROM verify_codes WHERE phone = ? AND code = ? AND used = 0 AND expires_at > ? ORDER BY id DESC LIMIT 1'
+  ).get(phone, code, new Date().toISOString());
+
+  if (!record) {
+    return res.status(400).json({ error: '验证码错误或已过期' });
+  }
+
+  // 标记验证码已使用
+  db.prepare('UPDATE verify_codes SET used = 1 WHERE id = ?').run(record.id);
+
+  // 检查用户是否存在
+  const user = db.prepare('SELECT id FROM users WHERE phone = ?').get(phone);
+  if (!user) {
+    return res.status(400).json({ error: '该手机号未注册' });
+  }
+
+  // 更新密码
+  const passwordHash = bcrypt.hashSync(password, 10);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, user.id);
+
+  res.json({ success: true, message: '密码重置成功' });
 });
 
 // ============ 用户注册（手机号+密码，无需验证码） ============
@@ -36,6 +134,9 @@ router.post('/register', (req, res) => {
 
   if (!phone || !password) {
     return res.status(400).json({ error: '请填写手机号和密码' });
+  }
+  if (!/^1[3-9]\d{9}$/.test(phone)) {
+    return res.status(400).json({ error: '请输入正确的手机号' });
   }
   if (password.length < 6) {
     return res.status(400).json({ error: '密码至少6位' });
@@ -74,6 +175,10 @@ router.post('/login', (req, res) => {
 
   if (!phone || !password) {
     return res.status(400).json({ error: '请输入手机号和密码' });
+  }
+
+  if (!/^1[3-9]\d{9}$/.test(phone)) {
+    return res.status(400).json({ error: '请输入正确的手机号' });
   }
 
   const user = db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
@@ -138,15 +243,15 @@ function createDefaultCategories(userId) {
     { id: 'cat_finance', name: '金融', icon: '💰', color: '#d48806', type: 'expense', keywords: JSON.stringify(['理财', '基金', '股票', '保险', '贷款', '还款', '信用卡', '利息', '手续费']) },
     { id: 'cat_other_expense', name: '其他', icon: '📦', color: '#8c8c8c', type: 'expense', keywords: JSON.stringify([]) },
     { id: 'cat_salary', name: '工资', icon: '💵', color: '#52c41a', type: 'income', keywords: JSON.stringify(['工资', '薪资', '薪水']) },
-    { id: 'cat_bonus', name: '奖金', icon: '🎁', color: '#73d13d', type: 'income', keywords: JSON.stringify(['奖金', '年终', '绩效', '提成']) },
+    { id: 'cat_bonus', name: '奖金', icon: '🏆', color: '#73d13d', type: 'income', keywords: JSON.stringify(['奖金', '年终', '绩效', '提成']) },
     { id: 'cat_investment', name: '理财收益', icon: '📈', color: '#36cfc9', type: 'income', keywords: JSON.stringify(['利息', '分红', '收益', '赎回']) },
-    { id: 'cat_reimburse', name: '报销', icon: '🧾', color: '#597ef7', type: 'income', keywords: JSON.stringify(['报销', '退款', '退']) },
-    { id: 'cat_redpacket', name: '红包', icon: '🧧', color: '#ff4d4f', type: 'income', keywords: JSON.stringify(['红包']) },
-    { id: 'cat_other_income', name: '其他', icon: '📋', color: '#8c8c8c', type: 'income', keywords: JSON.stringify([]) }
+    { id: 'cat_reimburse', name: '报销退款', icon: '↩️', color: '#597ef7', type: 'income', keywords: JSON.stringify(['报销', '退款', '退']) },
+    { id: 'cat_redpacket', name: '红包转账', icon: '🧧', color: '#ff4d4f', type: 'income', keywords: JSON.stringify(['红包']) },
+    { id: 'cat_other_income', name: '其他收入', icon: '✨', color: '#8c8c8c', type: 'income', keywords: JSON.stringify([]) }
   ];
 
   const stmt = db.prepare(
-    'INSERT INTO categories (id, user_id, name, icon, color, type, keywords) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT OR IGNORE INTO categories (id, user_id, name, icon, color, type, keywords) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
   for (const c of defaults) {
     stmt.run(c.id, userId, c.name, c.icon, c.color, c.type, c.keywords);
@@ -164,7 +269,7 @@ function createDefaultAccounts(userId) {
     { id: 'credit', name: '信用卡', type: 'credit', balance: -3000 }
   ];
   const stmt = db.prepare(
-    'INSERT INTO accounts (id, user_id, name, type, currency, balance, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT OR IGNORE INTO accounts (id, user_id, name, type, currency, balance, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
   for (const a of defaults) {
     stmt.run(a.id, userId, a.name, a.type, '¥', a.balance, now);

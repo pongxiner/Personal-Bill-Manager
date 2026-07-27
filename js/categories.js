@@ -19,11 +19,11 @@ const Categories = (() => {
   // 默认收入分类
   const DEFAULT_INCOME = [
     { id: 'cat_salary', name: '工资', icon: '💵', color: '#52c41a', type: 'income', keywords: ['工资', '薪资', '薪水'] },
-    { id: 'cat_bonus', name: '奖金', icon: '🎁', color: '#73d13d', type: 'income', keywords: ['奖金', '年终', '绩效', '提成'] },
+    { id: 'cat_bonus', name: '奖金', icon: '🏆', color: '#73d13d', type: 'income', keywords: ['奖金', '年终', '绩效', '提成'] },
     { id: 'cat_investment', name: '理财收益', icon: '📈', color: '#36cfc9', type: 'income', keywords: ['利息', '分红', '收益', '收益分配', '赎回'] },
-    { id: 'cat_reimburse', name: '报销', icon: '🧾', color: '#597ef7', type: 'income', keywords: ['报销', '退款', '退'] },
-    { id: 'cat_redpacket', name: '红包', icon: '🧧', color: '#ff4d4f', type: 'income', keywords: ['红包', '转账'] },
-    { id: 'cat_other_income', name: '其他', icon: '📋', color: '#8c8c8c', type: 'income', keywords: [] }
+    { id: 'cat_reimburse', name: '报销退款', icon: '↩️', color: '#597ef7', type: 'income', keywords: ['报销', '退款', '退'] },
+    { id: 'cat_redpacket', name: '红包转账', icon: '🧧', color: '#ff4d4f', type: 'income', keywords: ['红包', '转账'] },
+    { id: 'cat_other_income', name: '其他收入', icon: '✨', color: '#8c8c8c', type: 'income', keywords: [] }
   ];
 
   let categories = [];

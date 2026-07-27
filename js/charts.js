@@ -20,6 +20,7 @@ const Charts = (() => {
 
   /**
    * 首页迷你趋势图（近7天支出）
+   * data: { labels, values, dates?, onClick? }
    */
   function renderHomeTrend(canvas, data) {
     destroy('homeTrend');
@@ -45,12 +46,22 @@ const Charts = (() => {
           pointRadius: 3,
           pointBackgroundColor: '#5b6ef5',
           pointBorderColor: '#fff',
-          pointBorderWidth: 1
+          pointBorderWidth: 1,
+          pointHoverRadius: 7
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: { intersect: false, mode: 'nearest' },
+        onClick: (e, elements, chart) => {
+          if (!data.onClick || !chart) return;
+          const pts = chart.getElementsAtEventForMode(e, 'nearest', { intersect: false }, true);
+          if (pts.length > 0) {
+            const idx = pts[0].index;
+            data.onClick(idx, data.labels ? data.labels[idx] : '', data.values ? data.values[idx] : 0);
+          }
+        },
         plugins: { legend: { display: false }, tooltip: {
           callbacks: {
             label: (ctx) => '¥' + ctx.parsed.y.toFixed(2)
@@ -66,10 +77,19 @@ const Charts = (() => {
 
   /**
    * 支出分类饼图
+   * data: [{ id, name, amount, color }], onClick? callback(id, name)
    */
   function renderPie(canvas, data) {
     destroy('pie');
-    if (!canvas || data.length === 0) return;
+    if (!canvas || data.length === 0) {
+      // 隐藏饼图卡片
+      const card = document.getElementById('stats-pie-card');
+      if (card) card.style.display = 'none';
+      return;
+    }
+
+    const card = document.getElementById('stats-pie-card');
+    if (card) card.style.removeProperty('display');
 
     const ctx = canvas.getContext('2d');
     instances.pie = new Chart(ctx, {
@@ -86,7 +106,15 @@ const Charts = (() => {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        cutout: '60%',
+        cutout: '55%',
+        onClick: (e, elements, chart) => {
+          if (!data.onClick || elements.length === 0) return;
+          const idx = elements[0].index;
+          if (idx >= 0 && idx < data.length) {
+            const item = data[idx];
+            data.onClick(item.id, item.name);
+          }
+        },
         plugins: {
           legend: {
             position: 'bottom',
@@ -152,9 +180,13 @@ const Charts = (() => {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        onClick: (e, elements) => {
-          if (elements.length > 0 && data.onClick) {
-            const idx = elements[0].index;
+        interaction: { intersect: false, mode: 'nearest' },
+        onClick: (e, elements, chart) => {
+          if (!data.onClick) return;
+          // 优先使用 chart.getElementsAtEventForMode 获取最近点
+          const pts = chart.getElementsAtEventForMode(e, 'nearest', { intersect: false }, true);
+          if (pts.length > 0) {
+            const idx = pts[0].index;
             data.onClick(idx, data.labels[idx], data.values[idx]);
           }
         },

@@ -84,15 +84,21 @@ const Auth = (() => {
 
   // ============ 登录/注册页面切换 ============
   function showLoginPage() {
-    document.getElementById('app').style.display = 'none';
-    document.getElementById('bottom-nav').style.display = 'none';
-    document.getElementById('page-auth').style.display = 'flex';
+    const app = document.getElementById('app');
+    const nav = document.getElementById('bottom-nav');
+    const auth = document.getElementById('page-auth');
+    if (app) app.style.display = 'none';
+    if (nav) nav.style.display = 'none';
+    if (auth) auth.style.display = 'flex';
   }
 
   function hideLoginPage() {
-    document.getElementById('page-auth').style.display = 'none';
-    document.getElementById('app').style.display = '';
-    document.getElementById('bottom-nav').style.display = '';
+    const auth = document.getElementById('page-auth');
+    const app = document.getElementById('app');
+    const nav = document.getElementById('bottom-nav');
+    if (auth) auth.style.display = 'none';
+    if (app) app.style.removeProperty('display');
+    if (nav) nav.style.removeProperty('display');
   }
 
   // ============ 注册（仅手机号+密码） ============
@@ -160,3 +166,17 @@ const Auth = (() => {
     initAuth
   };
 })();
+
+// ==================== 全局按钮处理函数（内联脚本的后备） ====================
+// 内联 <script> 中已通过 onclick 绑定主要逻辑，此处仅做 fallback
+// 如果 window._doLogin / _doRegister 未定义，则使用这些后备函数
+
+window._authLogin = window._authLogin || function() {
+  if (window._doLogin) return window._doLogin();
+  console.log('[auth.js fallback] login');
+};
+
+window._authRegister = window._authRegister || function() {
+  if (window._doRegister) return window._doRegister();
+  console.log('[auth.js fallback] register');
+};

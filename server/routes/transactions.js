@@ -2,7 +2,10 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { authRequired } = require('../middleware/auth');
-const db = require('../db');
+const { getDB } = require('../db');
+
+// 延迟代理：请求时才访问 DB（确保在 initDB() 之后）
+const db = new Proxy({}, { get(_, prop) { return getDB()[prop]; } });
 
 const router = express.Router();
 
@@ -67,6 +70,14 @@ router.post('/', (req, res) => {
     t.account || null, t.to_account || null, t.date, t.note || '', t.createdAt || now
   );
 
+  // 同步账户余额：支出则扣减，收入则增加
+  if (t.account && t.type !== 'transfer') {
+    const delta = t.type === 'expense' ? -t.amount : t.amount;
+    db.prepare(
+      'UPDATE accounts SET balance = balance + ? WHERE id = ? AND user_id = ?'
+    ).run(delta, t.account, req.userId);
+  }
+
   const created = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id);
   res.json({ transaction: created });
 });
@@ -79,6 +90,15 @@ router.put('/:id', (req, res) => {
     return res.status(404).json({ error: '记录不存在' });
   }
 
+  // 先撤销旧交易对账户余额的影响
+  if (existing.account && existing.type !== 'transfer') {
+    const reverseDelta = existing.type === 'expense' ? existing.amount : -existing.amount;
+    db.prepare(
+      'UPDATE accounts SET balance = balance + ? WHERE id = ? AND user_id = ?'
+    ).run(reverseDelta, existing.account, req.userId);
+  }
+
+  // 更新交易记录
   db.prepare(`
     UPDATE transactions SET type=?, category=?, amount=?, account=?, to_account=?, date=?, note=?
     WHERE id=? AND user_id=?
@@ -87,16 +107,34 @@ router.put('/:id', (req, res) => {
     t.to_account || null, t.date, t.note || '', req.params.id, req.userId
   );
 
+  // 再应用新交易对账户余额的影响
+  if (t.account && t.type !== 'transfer') {
+    const delta = t.type === 'expense' ? -t.amount : t.amount;
+    db.prepare(
+      'UPDATE accounts SET balance = balance + ? WHERE id = ? AND user_id = ?'
+    ).run(delta, t.account, req.userId);
+  }
+
   const updated = db.prepare('SELECT * FROM transactions WHERE id = ?').get(req.params.id);
   res.json({ transaction: updated });
 });
 
 // 删除交易
 router.delete('/:id', (req, res) => {
-  const r = db.prepare('DELETE FROM transactions WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
-  if (r.changes === 0) {
+  const existing = db.prepare('SELECT * FROM transactions WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+  if (!existing) {
     return res.status(404).json({ error: '记录不存在' });
   }
+
+  // 撤销该交易对账户余额的影响
+  if (existing.account && existing.type !== 'transfer') {
+    const reverseDelta = existing.type === 'expense' ? existing.amount : -existing.amount;
+    db.prepare(
+      'UPDATE accounts SET balance = balance + ? WHERE id = ? AND user_id = ?'
+    ).run(reverseDelta, existing.account, req.userId);
+  }
+
+  db.prepare('DELETE FROM transactions WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
   res.json({ success: true });
 });
 
@@ -113,19 +151,24 @@ router.post('/bulk', (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const insertMany = db.transaction((txList) => {
-    let count = 0;
-    for (const t of txList) {
-      stmt.run(
-        t.id || uuidv4(), req.userId, t.type, t.category, t.amount,
-        t.account || null, t.to_account || null, t.date, t.note || '', t.createdAt || now
-      );
-      count++;
-    }
-    return count;
-  });
+  let count = 0;
+  for (const t of transactions) {
+    stmt.run(
+      t.id || uuidv4(), req.userId, t.type, t.category, t.amount,
+      t.account || null, t.to_account || null, t.date, t.note || '', t.createdAt || now
+    );
 
-  const count = insertMany(transactions);
+    // 同步账户余额
+    if (t.account && t.type !== 'transfer') {
+      const delta = t.type === 'expense' ? -t.amount : t.amount;
+      db.prepare(
+        'UPDATE accounts SET balance = balance + ? WHERE id = ? AND user_id = ?'
+      ).run(delta, t.account, req.userId);
+    }
+
+    count++;
+  }
+
   res.json({ success: true, count });
 });
 
